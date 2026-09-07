@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Switchback Supply: practical objects for unrushed days outside."
+    />
+    <title>Switchback Supply</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" type="module"></script>
+  </head>
+  <body>
+    <div class="top-rule" aria-hidden="true"></div>
+    <header class="site-header">
+      <a class="wordmark" href="/" aria-label="Switchback Supply home">
+        <span class="wordmark-mark">S/S</span>
+        <span>Switchback Supply</span>
+      </a>
+      <p class="dispatch">Field dispatch № 08 · Goods for going slowly</p>
+      <button class="cart-jump" type="button" data-cart-jump>
+        Cart <span data-cart-count>0</span>
+      </button>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow">Small-run field goods · Autumn issue</p>
+          <h1 id="hero-title">Pack less.<br /><em>Notice more.</em></h1>
+          <p class="hero-intro">
+            Hard-wearing companions for quiet miles, open tables, and the useful pause between
+            here and there.
+          </p>
+          <a class="text-link" href="#collection">Browse the field collection ↓</a>
+        </div>
+        <div class="hero-art" aria-label="Abstract trail marker illustration" role="img">
+          <span class="sun"></span>
+          <span class="ridge ridge-back"></span>
+          <span class="ridge ridge-front"></span>
+          <span class="trail"></span>
+          <p>46° N<br />11° E</p>
+        </div>
+      </section>
+
+      <section class="collection" id="collection" aria-labelledby="collection-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Edition 01—03</p>
+            <h2 id="collection-title">The field collection</h2>
+          </div>
+          <div class="filters" aria-label="Filter products" data-filters>
+            <button type="button" class="active" data-filter="All" aria-pressed="true">All</button>
+            <button type="button" data-filter="Desk" aria-pressed="false">Desk</button>
+            <button type="button" data-filter="Camp" aria-pressed="false">Camp</button>
+            <button type="button" data-filter="Carry" aria-pressed="false">Carry</button>
+          </div>
+        </div>
+        <div class="product-grid" data-products aria-live="polite"></div>
+      </section>
+
+      <section class="cart-panel" data-cart-panel aria-labelledby="cart-title">
+        <div class="cart-heading">
+          <div>
+            <p class="eyebrow">Your provisions</p>
+            <h2 id="cart-title">Ready for the trail?</h2>
+          </div>
+          <p>Complimentary delivery over $40.</p>
+        </div>
+        <p class="empty-cart" data-empty-cart>Your cart is waiting for a useful thing.</p>
+        <div class="cart-lines" data-cart-lines></div>
+        <div class="cart-summary">
+          <dl>
+            <div><dt>Goods</dt><dd data-subtotal>$0.00</dd></div>
+            <div><dt>Delivery</dt><dd data-delivery>—</dd></div>
+            <div class="total"><dt>Total</dt><dd data-total>$0.00</dd></div>
+          </dl>
+          <button class="checkout" type="button" data-checkout disabled>Continue to checkout</button>
+        </div>
+      </section>
+
+      <section class="order-confirmation" data-confirmation hidden tabindex="-1">
+        <p class="eyebrow">Order confirmed</p>
+        <h2>See you beyond the pavement.</h2>
+        <p>Your reference is <strong data-order-reference></strong>. A receipt is on its way.</p>
+      </section>
+    </main>
+
+    <footer>
+      <p>Switchback Supply Co. · Helena, Montana</p>
+      <p>Made for demonstration. No payment is collected.</p>
+    </footer>
+
+    <dialog data-checkout-dialog aria-labelledby="checkout-title">
+      <form method="dialog" data-checkout-form>
+        <button class="dialog-close" value="cancel" aria-label="Close checkout">×</button>
+        <p class="eyebrow">Final waypoint</p>
+        <h2 id="checkout-title">Where should we send it?</h2>
+        <label>
+          Email
+          <input type="email" name="email" autocomplete="email" required />
+        </label>
+        <label>
+          Postal code
+          <input name="postalCode" autocomplete="postal-code" minlength="3" required />
+        </label>
+        <button class="checkout" type="submit" value="place-order">Place order</button>
+      </form>
+    </dialog>
+  </body>
+</html>
+
