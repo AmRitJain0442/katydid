@@ -19,15 +19,11 @@ This is a foundation for the blueprint's Phase 1. AI hunting, automatic patch/me
 
 ### 1. Pinned environment and package foundation
 
-Added the installable CLI, exact Python/uv selection, dependency lock, isolated development commands, and environment documentation. The CLI currently exposes help and version only. Validation: locked sync, CLI version, lint, formatting, and strict type checking.
+Added the installable CLI, exact Python/uv selection, dependency lock, isolated development commands, and environment documentation. At this commit the CLI exposed help and version only. Validation: locked sync, CLI version, lint, formatting, and strict type checking.
 
 ### 2. Strict profiles and deterministic planning
 
 Added the implemented v1 profile, command argument arrays, explicit stage selection/exclusions, source hashes, strict YAML/Pydantic validation, and resolved working-directory containment. `validate` and `plan` execute no repository code. Added negative tests for ambiguous configuration, invalid types, path escape, empty selections, and duplicate IDs. Windows cannot create the symlink fixture without additional privileges; Linux CI will exercise that case.
-
-### Planned next slices
-
-5. Windows/Linux CI, working examples, and final environment/run documentation.
 
 ### 3. Test evidence and aggregate gates
 
@@ -36,3 +32,11 @@ Added bounded, hardened JUnit parsing and explicit missing/invalid/zero/skipped/
 ### 4. Local runner, checkpoints, and cancellation
 
 Added fresh per-run/check artifacts, expanded argument arrays, exact profile hash checks, runtime/Git identity, process timeouts, cooperative cancellation, a soft log limit, and atomic JSON checkpoints. `run` and `cancel` are available in the CLI. Running/cancelled checkpoints cannot pass. Integration tests execute real subprocesses, verify child cleanup at timeout, reject stale evidence, preserve failures while later checks run, and cover launch errors, cancellation, paths with spaces, literal shell text, and exit codes. The local trust and foreground-process requirements are documented explicitly.
+
+### 5. Self-testing profile, example, and CI
+
+Added a real `katydid.yaml` that executes lint, formatting, strict typing, and pytest through Katydid. Added a separate pricing example with its own profile and JUnit-producing tests. GitHub Actions validates Ubuntu 24.04 and Windows Server 2022 using pinned action commits, locked project dependencies, read-only permissions, and seven-day evidence retention. The README distinguishes implemented capabilities from the blueprint. Local validation passed the self-profile, example profile, and distribution build; hosted CI is the authority for cross-platform results on each pushed revision.
+
+## Next milestone
+
+Add centrally enforced policy independent of repository declarations, a durable run/control store with crash reconciliation, and supervised environment adapters before executing untrusted workloads or adding AI-driven side effects. Preserve this local adapter as the reproducible execution contract. AI coordination should consume proven plans/evidence rather than replace the gate semantics.

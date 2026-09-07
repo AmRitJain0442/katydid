@@ -1,0 +1,21 @@
+schema_version: 1
+repository: katydid
+owner: platform
+checks:
+  - id: lint
+    kind: command
+    argv: ["{python}", "-m", "ruff", "check", "."]
+    stages: [pull-request, merge, nightly]
+  - id: format
+    kind: command
+    argv: ["{python}", "-m", "ruff", "format", "--check", "."]
+    stages: [pull-request, merge, nightly]
+  - id: types
+    kind: command
+    argv: ["{python}", "-m", "mypy"]
+    stages: [pull-request, merge, nightly]
+  - id: tests
+    kind: test
+    argv: ["{python}", "-m", "pytest", "--junitxml={report}"]
+    stages: [pull-request, merge, nightly]
+    timeout_seconds: 120

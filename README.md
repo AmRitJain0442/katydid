@@ -4,11 +4,21 @@ Automated testing, CI/CD, and autonomous AI bug hunting.
 
 A platform in development for adaptable repository testing, with a blueprint for autonomous bug hunting, verification, repair, review, and delivery.
 
-**Status:** Implementation started. The pinned Python CLI foundation is available; the full autonomous platform is not yet implemented.
+**Status:** First working local execution slice. Profile validation, planning, process execution, JUnit evidence, aggregate gates, and cooperative cancellation are implemented. The full autonomous platform and remote sandbox are not yet implemented.
 
 ## Start here
 
 See the [development environment](docs/DEVELOPMENT.md) for exact tool versions and setup commands, and the [implementation record](docs/IMPLEMENTATION.md) for completed slices and next steps.
+
+```text
+python scripts/dev.py sync
+python scripts/dev.py cli run examples/python-service/quality.yaml
+python scripts/dev.py cli run katydid.yaml
+```
+
+The example runs a small local test suite. Katydid's own profile runs lint, format checks, strict type checks, and the platform tests. No Docker daemon, cloud credentials, or model API keys are required.
+
+Read the [implemented profile schema](docs/PROFILE.md) and [execution/evidence guide](docs/RUNS.md) for command semantics, exit codes, cancellation, and current limits. This first adapter executes **trusted local code with your permissions**, not sandboxed untrusted repositories.
 
 Read the [Automated Testing Platform Blueprint](AUTOMATED_TESTING_PLATFORM_BLUEPRINT.md) for the complete architecture, tool selections, execution steps, Mermaid diagrams, and implementation acceptance criteria.
 
@@ -39,4 +49,4 @@ Missing evidence and unresolved intent remain explicit. Autonomous operation doe
 | 5 | Additional repository profiles and specialists |
 | 6 | Measured improvements to testing and AI hunting effectiveness |
 
-Tool capabilities are linked to official documentation in the blueprint. Configuration examples are proposed platform interfaces, not executable integrations.
+Tool capabilities are linked to official documentation in the blueprint. Its larger configuration examples remain proposed interfaces; `katydid.yaml` and `examples/python-service/quality.yaml` use the implemented local schema.

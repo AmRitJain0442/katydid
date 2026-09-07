@@ -1,0 +1,9 @@
+schema_version: 1
+repository: example-pricing
+owner: example-team
+checks:
+  - id: unit
+    kind: test
+    argv: ["{python}", "-m", "pytest", "tests", "--junitxml={report}"]
+    timeout_seconds: 30
+    stages: [pull-request, merge, nightly]

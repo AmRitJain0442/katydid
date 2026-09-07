@@ -33,6 +33,14 @@ The initial sync downloads the pinned interpreter and dependencies if absent. Su
 
 Use `python scripts/dev.py test` when tests are present. Use `python scripts/dev.py format` to format and `python scripts/dev.py build` to build a distribution. Additional arguments are forwarded as argument-array entries, never assembled into a shell command.
 
+Run `python scripts/dev.py cli run katydid.yaml` for the complete local quality check through Katydid itself. Run `python scripts/dev.py cli run examples/python-service/quality.yaml` for a separate example target. See [run evidence and cancellation](RUNS.md).
+
+## GitHub CI
+
+`.github/workflows/ci.yml` runs on pushes to main, pull requests, and manual dispatch. It uses Ubuntu 24.04 and Windows Server 2022, the same pinned Python/uv versions, and a locked dependency install. Each job executes Katydid's own quality profile, the example profile, and a package build. Original run evidence is retained for seven days, including on failure.
+
+Third-party actions are pinned to full commit hashes, checkout does not persist credentials, and workflow permissions are read-only. CI does not deploy or invoke an AI service. `verify` jobs report outcomes but this change does not configure repository branch protection or enable auto-merge.
+
 To deliberately update dependencies, use `uvx --from uv==0.12.10 uv lock --upgrade-package PACKAGE`, inspect the lockfile change, and run the relevant checks. Ordinary setup uses `--locked` and must not silently rewrite the lock.
 
 ## Environment boundaries
