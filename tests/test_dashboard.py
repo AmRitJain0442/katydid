@@ -186,9 +186,7 @@ def test_create_and_every_control_reach_callbacks():
 )
 def test_create_rejects_invalid_bodies(body, expected):
     with running_dashboard() as (_, port):
-        status, _, _ = request(
-            port, "POST", "/api/tasks", body, mutation_headers(port)
-        )
+        status, _, _ = request(port, "POST", "/api/tasks", body, mutation_headers(port))
         assert status == expected
 
 
@@ -247,18 +245,14 @@ def test_host_and_origin_checks_block_browser_rebinding():
 
         headers = mutation_headers(port)
         headers["Origin"] = "http://localhost:1"
-        status, _, _ = request(
-            port, "POST", "/api/tasks", {"repository": "demo"}, headers
-        )
+        status, _, _ = request(port, "POST", "/api/tasks", {"repository": "demo"}, headers)
         assert status == 403
 
 
 def test_body_limit_and_path_traversal_are_rejected():
     with running_dashboard() as (_, port):
         oversized = b"{" + b" " * MAX_REQUEST_BYTES + b"}"
-        status, _, _ = request(
-            port, "POST", "/api/tasks", oversized, mutation_headers(port)
-        )
+        status, _, _ = request(port, "POST", "/api/tasks", oversized, mutation_headers(port))
         assert status == 413
 
         for path in ("/static/../dashboard.py", "/static/%2e%2e/dashboard.py", "/api/tasks/a%2Fb"):
