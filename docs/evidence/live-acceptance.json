@@ -1,0 +1,357 @@
+{
+  "recorded_at": "2026-09-07T11:37:05.044900+00:00",
+  "provider": "codex",
+  "model": "gpt-5.6-sol",
+  "reasoning": "high",
+  "codex_cli": "0.153.4",
+  "python": "3.12.13",
+  "local_demo_passed": true,
+  "protected_tests_unchanged": true,
+  "local_real_ai_calls": 6,
+  "local_tasks": [
+    {
+      "task_id": "1a31bff1f9f84680b227c7b7aa25f371",
+      "repository": "pricing",
+      "state": "completed",
+      "config_sha256": "5666458762871add82b84091c1f26fc720e219e9940a1cd7e8882a98bd8d0f93",
+      "base_sha": "dd74efddb2927a9efd704541e6737ca2a952ce6e",
+      "candidate_sha": "b5dd25054ba12fdfbdf2e0dc5edefb9e7e6b25e1",
+      "candidate_tree": "3e25e82b930213dce2eeaf5722d42a3dc64a75ff",
+      "merged_sha": "b5dd25054ba12fdfbdf2e0dc5edefb9e7e6b25e1",
+      "outcome": "repaired",
+      "review": {
+        "approved": true,
+        "concerns": [],
+        "summary": "The diff removes the erroneous +1 and restores total(prices) to the arithmetic sum while preserving the API and adding no dependencies. Verification passed all 5 executed tests, including empty, positive, negative-offsetting, singleton, and zero inputs."
+      },
+      "baseline": {
+        "gate": {
+          "advisories": [],
+          "passed": false,
+          "reasons": [
+            "unit: failed: Process exited with code 1"
+          ]
+        },
+        "checks": [
+          {
+            "id": "unit",
+            "status": "failed",
+            "exit_code": 1,
+            "evidence": {
+              "detail": "JUnit records failed or errored tests",
+              "errors": 0,
+              "failures": 5,
+              "skipped": 0,
+              "status": "failed",
+              "tests": 5
+            }
+          }
+        ]
+      },
+      "verification": {
+        "gate": {
+          "advisories": [],
+          "passed": true,
+          "reasons": []
+        },
+        "checks": [
+          {
+            "id": "unit",
+            "status": "passed",
+            "exit_code": 0,
+            "evidence": {
+              "detail": "JUnit contains passing executed tests",
+              "errors": 0,
+              "failures": 0,
+              "skipped": 0,
+              "status": "passed",
+              "tests": 5
+            }
+          }
+        ]
+      },
+      "deploy": {
+        "gate": {
+          "advisories": [],
+          "passed": true,
+          "reasons": []
+        },
+        "checks": [
+          {
+            "id": "deploy",
+            "status": "passed",
+            "exit_code": 0,
+            "evidence": null
+          }
+        ]
+      },
+      "health": {
+        "gate": {
+          "advisories": [],
+          "passed": true,
+          "reasons": []
+        },
+        "checks": [
+          {
+            "id": "health",
+            "status": "passed",
+            "exit_code": 0,
+            "evidence": null
+          }
+        ]
+      }
+    },
+    {
+      "task_id": "9488534a861a41838fb6e1ba6afb5878",
+      "repository": "catalog",
+      "state": "completed",
+      "config_sha256": "5666458762871add82b84091c1f26fc720e219e9940a1cd7e8882a98bd8d0f93",
+      "base_sha": "fd985ceace089602db8b4020fd3b736d0dc32f29",
+      "outcome": "healthy",
+      "baseline": {
+        "gate": {
+          "advisories": [],
+          "passed": true,
+          "reasons": []
+        },
+        "checks": [
+          {
+            "id": "unit",
+            "status": "passed",
+            "exit_code": 0,
+            "evidence": {
+              "detail": "JUnit contains passing executed tests",
+              "errors": 0,
+              "failures": 0,
+              "skipped": 0,
+              "status": "passed",
+              "tests": 5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "task_id": "2e45eef61ded49fb95139ce24ccdb2a0",
+      "repository": "recovery",
+      "state": "failed",
+      "config_sha256": "5666458762871add82b84091c1f26fc720e219e9940a1cd7e8882a98bd8d0f93",
+      "base_sha": "e01f782411371d73ffe0affeafa3aa25da3932be",
+      "candidate_sha": "c2f0192f3550bcb587c928006b99a0b72747cd4a",
+      "candidate_tree": "15c43c5d301a38480cd2751b5fcc6e1e7d3cef49",
+      "merged_sha": "c2f0192f3550bcb587c928006b99a0b72747cd4a",
+      "error": "Release failed; previous deployment restored and healthy",
+      "review": {
+        "approved": true,
+        "concerns": [],
+        "summary": "The diff removes the erroneous +1 and restores total(prices) to the arithmetic sum while preserving the API and adding no dependencies. Verification passed all 5 executed unit tests, including empty, positive, negative, singleton, and zero inputs."
+      },
+      "baseline": {
+        "gate": {
+          "advisories": [],
+          "passed": false,
+          "reasons": [
+            "unit: failed: Process exited with code 1"
+          ]
+        },
+        "checks": [
+          {
+            "id": "unit",
+            "status": "failed",
+            "exit_code": 1,
+            "evidence": {
+              "detail": "JUnit records failed or errored tests",
+              "errors": 0,
+              "failures": 5,
+              "skipped": 0,
+              "status": "failed",
+              "tests": 5
+            }
+          }
+        ]
+      },
+      "verification": {
+        "gate": {
+          "advisories": [],
+          "passed": true,
+          "reasons": []
+        },
+        "checks": [
+          {
+            "id": "unit",
+            "status": "passed",
+            "exit_code": 0,
+            "evidence": {
+              "detail": "JUnit contains passing executed tests",
+              "errors": 0,
+              "failures": 0,
+              "skipped": 0,
+              "status": "passed",
+              "tests": 5
+            }
+          }
+        ]
+      },
+      "deploy": {
+        "gate": {
+          "advisories": [],
+          "passed": true,
+          "reasons": []
+        },
+        "checks": [
+          {
+            "id": "deploy",
+            "status": "passed",
+            "exit_code": 0,
+            "evidence": null
+          }
+        ]
+      },
+      "health": {
+        "gate": {
+          "advisories": [],
+          "passed": false,
+          "reasons": [
+            "health: failed: Process exited with code 1"
+          ]
+        },
+        "checks": [
+          {
+            "id": "health",
+            "status": "failed",
+            "exit_code": 1,
+            "evidence": null
+          }
+        ]
+      },
+      "rollback": {
+        "gate": {
+          "advisories": [],
+          "passed": true,
+          "reasons": []
+        },
+        "checks": [
+          {
+            "id": "rollback",
+            "status": "passed",
+            "exit_code": 0,
+            "evidence": null
+          }
+        ]
+      },
+      "rollback_health": {
+        "gate": {
+          "advisories": [],
+          "passed": true,
+          "reasons": []
+        },
+        "checks": [
+          {
+            "id": "health",
+            "status": "passed",
+            "exit_code": 0,
+            "evidence": null
+          }
+        ]
+      }
+    }
+  ],
+  "github_task": {
+    "task_id": "73ac8b03e46d4f98a6be488220cb3dfc",
+    "repository": "pricing",
+    "state": "completed",
+    "config_sha256": "9dd24e52ab77465516776b3c21684cfa03440ba0d84e651ec859dcc1bac01939",
+    "base_sha": "f6b711b70b04a16af5dde571173ea75386af5c2a",
+    "candidate_sha": "98dc98e6212617e183ac63f6b7c76662eb0c91e9",
+    "candidate_tree": "e6c2e2d242e115fd73b9ce4ccd7034e94d220913",
+    "merged_sha": "c66318b13333f130026f1dd041301304bb2b4689",
+    "outcome": "repaired",
+    "review": {
+      "approved": true,
+      "concerns": [],
+      "summary": "The diff correctly removes the erroneous +1 while preserving the total(prices) API and adding no dependencies. The implementation now sums every price and returns 0 for empty input. Verification passed all 5 executed tests with no failures, errors, or skips."
+    },
+    "pull_request": {
+      "head": "katydid/pricing/73ac8b03e46d-1",
+      "number": 1,
+      "url": "https://github.com/AmRitJain0442/katydid/pull/1"
+    },
+    "baseline": {
+      "gate": {
+        "advisories": [],
+        "passed": false,
+        "reasons": [
+          "unit: failed: Process exited with code 1"
+        ]
+      },
+      "checks": [
+        {
+          "id": "unit",
+          "status": "failed",
+          "exit_code": 1,
+          "evidence": {
+            "detail": "JUnit records failed or errored tests",
+            "errors": 0,
+            "failures": 5,
+            "skipped": 0,
+            "status": "failed",
+            "tests": 5
+          }
+        }
+      ]
+    },
+    "verification": {
+      "gate": {
+        "advisories": [],
+        "passed": true,
+        "reasons": []
+      },
+      "checks": [
+        {
+          "id": "unit",
+          "status": "passed",
+          "exit_code": 0,
+          "evidence": {
+            "detail": "JUnit contains passing executed tests",
+            "errors": 0,
+            "failures": 0,
+            "skipped": 0,
+            "status": "passed",
+            "tests": 5
+          }
+        }
+      ]
+    },
+    "deploy": {
+      "gate": {
+        "advisories": [],
+        "passed": true,
+        "reasons": []
+      },
+      "checks": [
+        {
+          "id": "deploy",
+          "status": "passed",
+          "exit_code": 0,
+          "evidence": null
+        }
+      ]
+    },
+    "health": {
+      "gate": {
+        "advisories": [],
+        "passed": true,
+        "reasons": []
+      },
+      "checks": [
+        {
+          "id": "health",
+          "status": "passed",
+          "exit_code": 0,
+          "evidence": null
+        }
+      ]
+    }
+  },
+  "github_ci": "https://github.com/AmRitJain0442/katydid/actions/runs/34116766397"
+}

@@ -1,52 +1,78 @@
 # Katydid
 
-Automated testing, CI/CD, and autonomous AI bug hunting.
+Autonomous repository testing, AI repair, and verified delivery.
 
-A platform in development for adaptable repository testing, with a blueprint for autonomous bug hunting, verification, repair, review, and delivery.
+Katydid manages registered Git repositories through their existing test commands. It runs checks in separate clones, diagnoses failures with a real AI backend, applies narrowly permitted repairs, retests, obtains independent AI review, and publishes or merges eligible changes. Configured releases include health checks and rollback. A durable queue and localhost dashboard let an operator pause, cancel, resume, or steer work.
 
-**Status:** First working local execution slice. Profile validation, planning, process execution, JUnit evidence, aggregate gates, and cooperative cancellation are implemented. The full autonomous platform and remote sandbox are not yet implemented.
+**Implemented:** the end-to-end single-host workflow, including authenticated Codex integration, local and GitHub delivery, scheduled discovery, and release hooks. Red teaming remains deferred. Separate clones execute trusted code with the host's permissions; this release does not provide a container sandbox or distributed, multi-tenant hosting.
 
-## Start here
-
-See the [development environment](docs/DEVELOPMENT.md) for exact tool versions and setup commands, and the [implementation record](docs/IMPLEMENTATION.md) for completed slices and next steps.
+## Run it
 
 ```text
 python scripts/dev.py sync
-python scripts/dev.py cli run examples/python-service/quality.yaml
-python scripts/dev.py cli run katydid.yaml
+python scripts/dev.py cli demo init .katydid/demo
+python scripts/dev.py cli doctor --fleet .katydid/demo/fleet.yaml
+python scripts/dev.py cli demo run .katydid/demo --live-ai
+python scripts/dev.py cli serve --fleet .katydid/demo/fleet.yaml --watch
 ```
 
-The example runs a small local test suite. Katydid's own profile runs lint, format checks, strict type checks, and the platform tests. No Docker daemon, cloud credentials, or model API keys are required.
+Open **http://127.0.0.1:8765**. The demo creates three separate local Git repositories and uses the existing `codex login` session. It exercises a real AI repair/review, an already healthy repository, and a deliberately failed deployment with successful rollback. The recovery task correctly finishes `failed`; the overall demo passes only when rollback health is proven. Existing demo directories and evidence are preserved.
 
-Read the [implemented profile schema](docs/PROFILE.md) and [execution/evidence guide](docs/RUNS.md) for command semantics, exit codes, cancellation, and current limits. This first adapter executes **trusted local code with your permissions**, not sandboxed untrusted repositories.
+The pinned development environment uses Python **3.12.13** and uv **0.12.10**. The real AI adapter was exercised with Codex CLI **0.153.4**, model **gpt-5.6-sol**, and high reasoning. GitHub delivery additionally needs authenticated `gh`. CI uses explicit test doubles for model responses and does not need AI credentials.
 
-Read the [Automated Testing Platform Blueprint](AUTOMATED_TESTING_PLATFORM_BLUEPRINT.md) for the complete architecture, tool selections, execution steps, Mermaid diagrams, and implementation acceptance criteria.
+## Execution flow
 
-The blueprint covers:
+```mermaid
+flowchart TD
+    Registry[Central fleet policy + repository profiles] --> Dispatch[CLI / localhost dashboard / scheduled discovery]
+    Dispatch --> Queue[SQLite tasks, events, leases, control epochs]
+    Queue --> Clone[Separate Git clone at queued revision]
+    Clone --> Baseline[Required checks + fresh JUnit evidence]
+    Baseline -->|healthy| Complete[Completed with evidence]
+    Baseline -->|failure| Diagnose[Codex structured diagnosis]
+    Diagnose --> Repair[Codex proposed edits]
+    Repair --> Policy[Allowed files + protected tests + bounded attempts]
+    Policy --> Verify[Run original checks again]
+    Verify --> Review[Fresh Codex review]
+    Review -->|approved + passing| Commit[Commit verified candidate]
+    Review -->|reject within budget| Repair
+    Commit --> Delivery[Local branch / GitHub PR + hosted checks]
+    Delivery --> Merge[Configured automatic merge]
+    Merge --> Identity[Verify merged tree equals tested tree]
+    Identity --> Deploy[Registered deployment command]
+    Deploy --> Health[Registered health check]
+    Health -->|pass| Complete
+    Health -->|fail| Rollback[Rollback + recovery health check]
+    Rollback --> Failure[Failed or unresolved, with evidence]
+    Human[Operator interruption] --> Queue
+    Queue -. fence stale work / cancel processes .-> Repair
+    Queue -. stop further effects .-> Delivery
+```
 
-- Repository onboarding and adapters for web applications, services, libraries, mobile/desktop applications, data pipelines, infrastructure, and specialist workloads.
-- Pull-request testing, cross-repository compatibility, isolated environments, and reproducible test data.
-- CI/CD gates, immutable release artifacts, progressive deployment, monitoring, and recovery.
-- A Phase 2 AI team for functional and security bug hunting, independent verification, regression tests, and repairs.
-- Autonomous operation with independent AI review, policy-controlled merges and releases, and human pause, cancel, steering, and takeover controls.
-- Evidence, uncertainty, flaky tests, execution budgets, ownership, and staged adoption.
+Central registration grants standing authority once. Ordinary tasks proceed without human approval queues. AI responses cannot grant themselves edit, merge, or release permissions. Missing tests, failed review, changed policy/revisions, and uncertain external outcomes cannot become successful tasks.
 
-## Operating model
+## Documentation
 
-AI handles routine work within standing policies. Humans can inspect and interrupt at any point; ordinary tasks do not wait in human approval queues. Independent execution evidence and deterministic gates govern consequential actions.
-
-Missing evidence and unresolved intent remain explicit. Autonomous operation does not imply exhaustive coverage or permission to expand its own scope.
-
-## Roadmap
-
-| Phase | Outcome |
+| Document | Purpose |
 |---|---|
-| 0 | Repository inventory, pilot definition, and standing execution scope |
-| 1 | Automated testing foundation, isolated environments, reporting, and interruption controls |
-| 2 | Automated AI bug hunting, red teaming, verification, repair, and eligible merging |
-| 3 | Cross-repository compatibility and coordinated campaigns |
-| 4 | Release integration, autonomous deployment, monitoring, and recovery |
-| 5 | Additional repository profiles and specialists |
-| 6 | Measured improvements to testing and AI hunting effectiveness |
+| [Runbook](docs/RUNBOOK.md) | Complete setup, commands, operation, troubleshooting, and recovery |
+| [Fleet configuration](docs/FLEET.md) | Central policy, repository registration, AI budgets, delivery, and release hooks |
+| [Development environment](docs/DEVELOPMENT.md) | Exact environment and contributor checks |
+| [Profiles](docs/PROFILE.md) / [Runs](docs/RUNS.md) | Framework-neutral command adapters, JUnit, artifacts, and cancellation |
+| [AI integration](docs/AI.md) | Real provider, authentication, structured outputs, and limits |
+| [Durable state](docs/STATE.md) / [Git delivery](docs/GIT.md) | Leases, interruption, crash recovery, revisions, and publication |
+| [Dashboard](docs/DASHBOARD.md) | Local HTTP interface and request controls |
+| [Playwright example](docs/BROWSER.md) | Browser testing through the same evidence contract |
+| [Live acceptance](docs/LIVE_ACCEPTANCE.md) | Recorded model, GitHub, deployment, and rollback evidence |
+| [Implementation record](docs/IMPLEMENTATION.md) | Microcommit slices and validation |
+| [Full platform blueprint](AUTOMATED_TESTING_PLATFORM_BLUEPRINT.md) | Detailed tool arsenal and broader architecture; proposed features are not implementation claims |
 
-Tool capabilities are linked to official documentation in the blueprint. Its larger configuration examples remain proposed interfaces; `katydid.yaml` and `examples/python-service/quality.yaml` use the implemented local schema.
+## Validate the platform
+
+```text
+python scripts/dev.py cli run katydid.yaml
+python scripts/dev.py cli run examples/python-service/quality.yaml
+python scripts/dev.py build
+```
+
+GitHub Actions runs the deterministic suite on Windows and Linux. The platform cannot prove exhaustive coverage for arbitrary repositories: teams register meaningful checks, requirements, and environment commands, then Katydid executes and evaluates that contract autonomously.

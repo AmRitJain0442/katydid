@@ -1,6 +1,6 @@
 # Development environment
 
-Katydid's first implementation is a local Python CLI. The long-term architecture is in the [blueprint](../AUTOMATED_TESTING_PLATFORM_BLUEPRINT.md); it is not a statement of implemented features.
+Katydid is a Python CLI, durable single-host controller, and localhost dashboard. The [runbook](RUNBOOK.md) covers autonomous operation; the broader [blueprint](../AUTOMATED_TESTING_PLATFORM_BLUEPRINT.md) includes future capabilities.
 
 ## Exact toolchain
 
@@ -10,6 +10,8 @@ Katydid's first implementation is a local Python CLI. The long-term architecture
 | uv 0.12.10 | `.uv-version` and `tool.uv.required-version` | Environment and dependency management |
 | Dependencies | `pyproject.toml` and committed `uv.lock` | Constraints and exact resolution |
 | Virtual environment | `.venv/`, ignored by Git | All project dependencies; no global pip installation |
+| Codex CLI 0.153.4 | `.codex-version` | Tested real-model adapter version; installed separately, authenticated locally |
+| Node.js 24.13.1 / Playwright 1.63.0 | CI workflow / browser example lockfile | Reproducible Chromium acceptance jobs |
 | Source | `src/katydid/` | Installable package and CLI |
 | Generated run evidence | `.katydid/`, ignored by Git | Local reports and logs |
 
@@ -41,12 +43,14 @@ Run `python scripts/dev.py cli run katydid.yaml` for the complete local quality 
 
 Third-party actions are pinned to full commit hashes, checkout does not persist credentials, and workflow permissions are read-only. CI does not deploy or invoke an AI service. `verify` jobs report outcomes but this change does not configure repository branch protection or enable auto-merge.
 
+Separate browser jobs install the committed npm lockfile and Chromium, then run both `examples/browser-service/quality.yaml` and `tests/browser/quality.yaml` through Katydid. The latter starts a real temporary fleet/controller and exercises dashboard interruption and worker completion. Browser traces, screenshots on failure, and JUnit evidence are retained for seven days. See [browser setup](BROWSER.md).
+
 To deliberately update dependencies, use `uvx --from uv==0.12.10 uv lock --upgrade-package PACKAGE`, inspect the lockfile change, and run the relevant checks. Ordinary setup uses `--locked` and must not silently rewrite the lock.
 
 ## Environment boundaries
 
 - This development environment is local. There are no cloud resources or deployments created by setup.
-- Future local execution runs repository commands with the caller's permissions. A Python virtual environment is dependency isolation, not a security sandbox.
+- Local execution runs repository commands with the caller's permissions. A Python virtual environment is dependency isolation, not a security sandbox.
 - Do not execute an untrusted repository in this local adapter. Remote sandbox and credential-broker support are separate milestones.
 - Keep credentials out of manifests and committed files. Runtime evidence can contain application output; inspect it before sharing.
 - Pin changes to Python or uv explicitly, regenerate the dependency lock when appropriate, and validate both CI operating systems.

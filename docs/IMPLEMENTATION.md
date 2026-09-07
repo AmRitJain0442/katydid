@@ -41,6 +41,32 @@ Added a real `katydid.yaml` that executes lint, formatting, strict typing, and p
 
 Rejected direct batch launchers to avoid Windows' implicit shell behaviour and documented explicit-shell alternatives. Added a process-level regression that requests cancellation from a second CLI invocation and verifies terminal state, nonpassing evidence, and exit code 130. This supplements the in-process cancellation and process-tree timeout tests.
 
-## Next milestone
+## End-to-end autonomous milestone
 
-Add centrally enforced policy independent of repository declarations, a durable run/control store with crash reconciliation, and supervised environment adapters before executing untrusted workloads or adding AI-driven side effects. Preserve this local adapter as the reproducible execution contract. AI coordination should consume proven plans/evidence rather than replace the gate semantics.
+The following slices extend the foundation into a working single-host fleet controller. See the [acceptance plan](END_TO_END_PLAN.md), [live evidence](LIVE_ACCEPTANCE.md), and [operator runbook](RUNBOOK.md). Red teaming is deferred.
+
+| Microcommit | Implementation and verification |
+|---|---|
+| `fb937d7` | Defined the complete acceptance path and independent ownership contracts before implementation. |
+| `c39c2ef` | Strict central fleet registration, edit permissions, required checks, AI/delivery/release policy; negative schema and policy tests. |
+| `9ee71b7` | SQLite tasks/events, idempotency, renewable fenced leases, repository exclusion, interruption, and unknown-outcome crash handling; real concurrency tests. |
+| `5f6d4cb` | Separate Git clones, bounded file snapshots/edits, controlled commits, local publication and merge, GitHub PR/check/merge helpers; real temporary Git tests. |
+| `0015681` | Real authenticated Codex structured diagnosis/repair/review, ephemeral read-only execution, disabled action tools, validation and request bounds; subprocess tests plus a live diagnosis. |
+| `15806b6` | Loopback dashboard/API, same-origin mutation boundary, task dispatch, state/evidence display, and operator controls; HTTP boundary tests. |
+| `0c08462` | Fixed stale Python bytecode reuse after same-size repairs; regression preserves source timestamp deliberately and proves new code executes. |
+| `c7714d8` | Added fast-exit AI output-budget coverage and corrected formatting caught by hosted CI. |
+| `113ddb0` | Connected baseline checks, AI repair/review, protected files, verified commits, Git delivery, merged-tree identity, deployment, health, and rollback; complete failure-path integration tests. |
+| `43c55ca` | Added fleet/task/doctor/worker/serve/demo CLI, branch polling and scheduled checks, exact Codex version reference, and real three-repository demo; credential-free CLI subprocess tests. |
+| `6197662` | Corrected dashboard hidden-panel behavior, readable times/state colors, and availability of operator controls; real Chromium inspection. |
+| `19944fa` | Added a pinned Playwright storefront example with three real browser/API flows, managed server teardown, and fresh JUnit evidence. |
+| `bcac998` | Made AI call budgets durable across worker epochs, hardened demo recovery handling, and removed an HTTP test upload/close race. |
+
+Subsequent focused commits add the permanent dashboard browser regression, Windows/Linux browser CI, detailed configuration/runbook diagrams, and curated live acceptance evidence. Git history is the source of truth for those revisions.
+
+## Verification and remaining boundaries
+
+The complete quality profile runs lint, formatting, strict mypy, and deterministic pytest through Katydid itself. Real Chromium tests additionally exercise both the sample web application and the controller dashboard. Hosted CI runs both categories on Ubuntu 24.04 and Windows Server 2022 and preserves original evidence for seven days.
+
+Live acceptance uses real Codex calls to repair seeded defects without changing protected tests, publishes/merges local Git candidates, verifies deployed application behavior, and recovers from a deliberately broken deployment. A separate real GitHub PR passed hosted Windows/Linux checks, merged into its fixture branch, and released the verified tree. Raw private-host evidence stays ignored; a curated revision/test/review summary is committed.
+
+This release operates on trusted code on one host. Remote sandboxes, provider-specific reconciliation of unknown external effects, cross-repository compatibility campaigns, and red teaming remain future work. The full blueprint's proposed interfaces are not interchangeable with the implemented fleet/profile schemas.
