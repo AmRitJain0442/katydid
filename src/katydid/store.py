@@ -375,7 +375,8 @@ class Store:
             self._validate_lease(row, lease, now)
             count = int(
                 connection.execute(
-                    "SELECT COUNT(*) FROM task_events WHERE task_id = ? AND kind = 'ai_call_reserved'",
+                    "SELECT COUNT(*) FROM task_events "
+                    "WHERE task_id = ? AND kind = 'ai_call_reserved'",
                     (lease.task_id,),
                 ).fetchone()[0]
             )
