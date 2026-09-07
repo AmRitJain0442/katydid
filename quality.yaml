@@ -1,0 +1,11 @@
+checks:
+- argv:
+  - '{python}'
+  - verify.py
+  - '{report}'
+  id: unit
+  kind: test
+  timeout_seconds: 30
+owner: demo
+repository: pricing
+schema_version: 1
