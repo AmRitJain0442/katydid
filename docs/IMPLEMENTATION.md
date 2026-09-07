@@ -27,9 +27,12 @@ Added the implemented v1 profile, command argument arrays, explicit stage select
 
 ### Planned next slices
 
-4. Local runner with bounded execution, immutable run evidence, and CLI integration.
 5. Windows/Linux CI, working examples, and final environment/run documentation.
 
 ### 3. Test evidence and aggregate gates
 
 Added bounded, hardened JUnit parsing and explicit missing/invalid/zero/skipped/failing outcomes. Declared counts must match real testcases; orphan errors cannot disappear behind passing summaries. Aggregation reconciles all planned checks and rejects missing, unexpected, duplicate, or unsupported passing outcomes. Advisory failures remain visible. Tests cover real failures, malformed XML, external-entity declarations, nested suites, all-skipped execution, and missing evidence.
+
+### 4. Local runner, checkpoints, and cancellation
+
+Added fresh per-run/check artifacts, expanded argument arrays, exact profile hash checks, runtime/Git identity, process timeouts, cooperative cancellation, a soft log limit, and atomic JSON checkpoints. `run` and `cancel` are available in the CLI. Running/cancelled checkpoints cannot pass. Integration tests execute real subprocesses, verify child cleanup at timeout, reject stale evidence, preserve failures while later checks run, and cover launch errors, cancellation, paths with spaces, literal shell text, and exit codes. The local trust and foreground-process requirements are documented explicitly.
