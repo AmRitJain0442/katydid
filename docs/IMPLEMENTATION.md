@@ -27,6 +27,9 @@ Added the implemented v1 profile, command argument arrays, explicit stage select
 
 ### Planned next slices
 
-3. Honest test-evidence parsing and gate semantics.
 4. Local runner with bounded execution, immutable run evidence, and CLI integration.
 5. Windows/Linux CI, working examples, and final environment/run documentation.
+
+### 3. Test evidence and aggregate gates
+
+Added bounded, hardened JUnit parsing and explicit missing/invalid/zero/skipped/failing outcomes. Declared counts must match real testcases; orphan errors cannot disappear behind passing summaries. Aggregation reconciles all planned checks and rejects missing, unexpected, duplicate, or unsupported passing outcomes. Advisory failures remain visible. Tests cover real failures, malformed XML, external-entity declarations, nested suites, all-skipped execution, and missing evidence.
