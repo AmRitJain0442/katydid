@@ -1,7 +1,9 @@
+import json
 import subprocess
 import threading
 from pathlib import Path
 
+import pytest
 import yaml
 
 from katydid.ai import Diagnosis, FileEdit, Repair, Review
@@ -471,3 +473,223 @@ def test_failed_release_runs_real_rollback_and_post_rollback_health(tmp_path):
     ]
     assert states.count("deploying") == 2
     assert states.count("monitoring") == 2
+
+
+ENVIRONMENT_VERIFY = """import importlib
+import os
+import sys
+from pathlib import Path
+
+application = importlib.import_module("app")
+environment = Path(os.environ["KATYDID_ENVIRONMENT_DIR"])
+try:
+    assert environment.resolve() == Path(sys.argv[1]).resolve()
+    assert (environment / "data.txt").read_text(encoding="utf-8") == "run-owned data"
+    assert application.VALUE == 2, f"expected VALUE=2, got {application.VALUE!r}"
+except Exception as exc:
+    body = f'<testcase name="environment_contract"><failure>{exc}</failure></testcase>'
+    code = 1
+else:
+    body = '<testcase name="environment_contract"/>'
+    code = 0
+report = Path(os.environ["KATYDID_REPORT_PATH"])
+report.write_text(f'<testsuite tests="1" failures="{code}">{body}</testsuite>', encoding="utf-8")
+raise SystemExit(code)
+"""
+
+
+ENVIRONMENT_LIFECYCLE = """import json
+import os
+import sys
+from pathlib import Path
+
+action, environment_value, log_value, counter_value, scenario, run_id = sys.argv[1:]
+environment = Path(environment_value)
+log = Path(log_value)
+counter = Path(counter_value)
+count = int(counter.read_text(encoding="utf-8")) if counter.exists() else 0
+if action == "prepare":
+    count += 1
+    counter.write_text(str(count), encoding="utf-8")
+    (environment / "data.txt").write_text("run-owned data", encoding="utf-8")
+
+def record(**details):
+    with log.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps({
+            "action": action,
+            "environment": str(environment.resolve()),
+            "run_id": run_id,
+            "environment_run_id": os.environ["KATYDID_RUN_ID"],
+            "count": count,
+            **details,
+        }) + "\\n")
+
+if action == "prepare":
+    record(data_exists=(environment / "data.txt").exists())
+    if scenario == "initial-prepare-fail":
+        raise SystemExit(3)
+elif action == "readiness":
+    record(data_exists=(environment / "data.txt").exists())
+    if scenario == "verification-readiness-fail" and count >= 2:
+        raise SystemExit(4)
+    if not (environment / "data.txt").exists():
+        raise SystemExit(5)
+elif action == "cleanup":
+    (environment / "data.txt").unlink(missing_ok=True)
+    record(data_exists=(environment / "data.txt").exists())
+    if scenario == "baseline-cleanup-fail" or (
+        scenario == "verification-cleanup-fail" and count >= 2
+    ):
+        raise SystemExit(6)
+else:
+    raise SystemExit(7)
+"""
+
+
+def add_environment_lifecycle(repository: Path, scenario: str) -> tuple[Path, Path]:
+    log = repository.parent / f"{repository.name}-{scenario}-lifecycle.jsonl"
+    counter = repository.parent / f"{repository.name}-{scenario}-counter.txt"
+    (repository / "verify.py").write_text(ENVIRONMENT_VERIFY, encoding="utf-8")
+    (repository / "environment.py").write_text(ENVIRONMENT_LIFECYCLE, encoding="utf-8")
+    profile_path = repository / "quality.yaml"
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+    profile["checks"][0]["argv"].append("{environment}")
+
+    def hook(action: str) -> dict:
+        return {
+            "id": f"environment-{action}",
+            "kind": "command",
+            "argv": [
+                "{python}",
+                "environment.py",
+                action,
+                "{environment}",
+                str(log),
+                str(counter),
+                scenario,
+                "{run_id}",
+            ],
+            "timeout_seconds": 10,
+            "required": True,
+        }
+
+    profile["environment"] = {
+        "prepare": [hook("prepare")],
+        "readiness": {
+            "check": hook("readiness"),
+            "timeout_seconds": 1,
+            "interval_seconds": 0.05,
+        },
+        "cleanup": [hook("cleanup")],
+    }
+    profile_path.write_text(yaml.safe_dump(profile), encoding="utf-8")
+    git(repository, "add", ".")
+    git(repository, "commit", "-m", f"test: add {scenario} environment lifecycle")
+    return log, counter
+
+
+def lifecycle_records(log: Path) -> list[dict]:
+    return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+
+
+def assert_environment_cleanup(records: list[dict], expected_runs: int) -> None:
+    prepares = [record for record in records if record["action"] == "prepare"]
+    cleanups = [record for record in records if record["action"] == "cleanup"]
+    assert len(prepares) == expected_runs
+    assert len(cleanups) == expected_runs
+    environments = {record["environment"] for record in prepares}
+    assert len(environments) == expected_runs
+    assert environments == {record["environment"] for record in cleanups}
+    assert all(record["run_id"] == record["environment_run_id"] for record in records)
+    assert all(record["data_exists"] is False for record in cleanups)
+    assert all(not (Path(environment) / "data.txt").exists() for environment in environments)
+
+
+def test_repair_baseline_and_verification_use_fresh_cleaned_environments(tmp_path):
+    repository = make_repository(tmp_path, "service")
+    log, _counter = add_environment_lifecycle(repository, "success")
+    provider = DeterministicTestDouble()
+    controller = make_controller(tmp_path, [repository_policy(repository)], provider)
+    task = controller.enqueue("service")
+
+    result = controller.work_once()
+
+    assert result["state"] == "completed"
+    assert result["result"]["outcome"] == "repaired"
+    assert result["result"]["baseline"]["environment"]["ready"] is True
+    assert result["result"]["baseline"]["environment"]["cleanup_complete"] is True
+    assert result["result"]["verification"]["environment"]["ready"] is True
+    assert result["result"]["verification"]["environment"]["cleanup_complete"] is True
+    assert provider.roles == ["diagnosis", "repair", "review"]
+    records = lifecycle_records(log)
+    assert_environment_cleanup(records, 2)
+    workspace = Path(result["result"]["workspace"])
+    assert all(not Path(record["environment"]).is_relative_to(workspace) for record in records)
+    assert "publishing" in [event["state"] for event in controller.store.events(task["id"])]
+
+
+def test_initial_environment_setup_failure_stops_before_ai_and_cleans_up(tmp_path):
+    repository = make_repository(tmp_path, "service")
+    log, _counter = add_environment_lifecycle(repository, "initial-prepare-fail")
+    original = source_head(str(repository), "main")
+    provider = DeterministicTestDouble()
+    controller = make_controller(tmp_path, [repository_policy(repository)], provider)
+    task = controller.enqueue("service")
+
+    result = controller.work_once()
+
+    assert result["state"] == "failed"
+    assert "Environment lifecycle failed" in result["result"]["error"]
+    assert provider.roles == []
+    assert source_head(str(repository), "main") == original
+    assert "publishing" not in [event["state"] for event in controller.store.events(task["id"])]
+    assert_environment_cleanup(lifecycle_records(log), 1)
+
+
+def test_baseline_cleanup_failure_stops_before_ai_and_delivery(tmp_path):
+    repository = make_repository(tmp_path, "service")
+    log, _counter = add_environment_lifecycle(repository, "baseline-cleanup-fail")
+    original = source_head(str(repository), "main")
+    provider = DeterministicTestDouble()
+    controller = make_controller(tmp_path, [repository_policy(repository)], provider)
+    task = controller.enqueue("service")
+
+    result = controller.work_once()
+
+    assert result["state"] == "failed"
+    assert "Environment lifecycle failed" in result["result"]["error"]
+    assert result["result"]["baseline"]["environment"]["ready"] is True
+    assert result["result"]["baseline"]["environment"]["cleanup_complete"] is False
+    assert provider.roles == []
+    assert source_head(str(repository), "main") == original
+    assert "publishing" not in [event["state"] for event in controller.store.events(task["id"])]
+    assert_environment_cleanup(lifecycle_records(log), 1)
+
+
+@pytest.mark.parametrize("scenario", ["verification-readiness-fail", "verification-cleanup-fail"])
+def test_verification_environment_failure_stops_without_more_ai_or_delivery(tmp_path, scenario):
+    repository = make_repository(tmp_path, "service")
+    log, _counter = add_environment_lifecycle(repository, scenario)
+    original = source_head(str(repository), "main")
+    provider = DeterministicTestDouble()
+    policy = repository_policy(repository, repair_attempts=2)
+    controller = make_controller(tmp_path, [policy], provider)
+    task = controller.enqueue("service")
+
+    result = controller.work_once()
+
+    assert result["state"] == "failed"
+    assert "Environment lifecycle failed" in result["result"]["error"]
+    assert result["result"]["baseline"]["environment"]["ready"] is True
+    assert result["result"]["baseline"]["environment"]["cleanup_complete"] is True
+    verification = result["result"]["verification"]["environment"]
+    if scenario == "verification-readiness-fail":
+        assert verification["ready"] is False
+        assert verification["cleanup_complete"] is True
+    else:
+        assert verification["ready"] is True
+        assert verification["cleanup_complete"] is False
+    assert provider.roles == ["diagnosis", "repair"]
+    assert source_head(str(repository), "main") == original
+    assert "publishing" not in [event["state"] for event in controller.store.events(task["id"])]
+    assert_environment_cleanup(lifecycle_records(log), 2)

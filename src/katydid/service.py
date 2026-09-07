@@ -198,7 +198,8 @@ def handle(args: argparse.Namespace) -> int:
         finally:
             server.server_close()
             stop.set()
-            thread.join(timeout=65)
+            # A graceful shutdown must not abandon configured environment cleanup.
+            thread.join()
         return 0
     finally:
         for sig, handler in previous.items():

@@ -59,6 +59,7 @@ def _evidence(run: Run) -> dict[str, Any]:
         "gate": asdict(run.gate),
         "results": [asdict(result) for result in run.results],
         "log_tails": logs,
+        "environment": asdict(run.environment) if run.environment else None,
     }
 
 
@@ -188,6 +189,7 @@ class Controller:
             baseline = run_plan(plan, folder / "runs", cancelled)
             active()
             evidence["baseline"] = _evidence(baseline)
+            self._ensure_environment(baseline)
             self._assert_files(workspace, repo, protected)
             if diff(workspace):
                 raise ControllerError("Baseline checks modified tracked files")
@@ -237,10 +239,11 @@ class Controller:
                 state("verifying", attempt=attempt)
                 verified = run_plan(plan, folder / "runs", cancelled)
                 active()
+                evidence["verification"] = _evidence(verified)
+                self._ensure_environment(verified)
                 self._assert_files(workspace, repo, protected)
                 if diff(workspace) != candidate_diff:
                     raise ControllerError("Verification changed the candidate implementation")
-                evidence["verification"] = _evidence(verified)
                 context["verification"] = evidence["verification"]
                 context["diff"] = candidate_diff
                 context["files"] = snapshot_files(
@@ -351,6 +354,15 @@ class Controller:
             thread.join(timeout=2)
             _write_json(folder / "outcome.json", evidence)
         return self.store.get_task(lease.task_id)
+
+    @staticmethod
+    def _ensure_environment(run: Run) -> None:
+        if run.environment is not None and (
+            not run.environment.ready or not run.environment.cleanup_complete
+        ):
+            raise ControllerError(
+                "Environment lifecycle failed; infrastructure requires attention before AI repair"
+            )
 
     @staticmethod
     def _assert_files(
