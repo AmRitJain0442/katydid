@@ -19,6 +19,10 @@ const ui = {
   record: document.querySelector("#record"),
   steerForm: document.querySelector("#steer-form"),
   instruction: document.querySelector("#instruction"),
+  pauseButton: document.querySelector('[data-action="pause"]'),
+  resumeButton: document.querySelector('[data-action="resume"]'),
+  cancelButton: document.querySelector('[data-action="cancel"]'),
+  steerButton: document.querySelector("#steer-form button"),
   notice: document.querySelector("#notice"),
 };
 
@@ -34,7 +38,28 @@ function safeText(value, fallback = "—") {
 
 function knownState(value) {
   const state = safeText(value, "unknown").toLowerCase();
-  return ["queued", "running", "paused", "completed", "passed", "failed", "error", "cancelled"].includes(state) ? state : "unknown";
+  if (["queued", "discovered"].includes(state)) return "queued";
+  if (["completed", "passed", "paused", "failed", "error", "cancelled"].includes(state)) return state;
+  if (state === "unresolved") return "failed";
+  if (["running", "preparing", "planning", "testing", "diagnosing", "executing", "verifying", "repairing", "reviewing", "eligible", "merging", "publishing", "deploying", "releasing", "monitoring"].includes(state)) return "running";
+  return "unknown";
+}
+
+function formatTimestamp(value) {
+  if (value === null || value === undefined || value === "") return safeText(value);
+  const milliseconds = typeof value === "number" ? value * 1000 : Date.parse(String(value));
+  if (!Number.isFinite(milliseconds)) return safeText(value);
+  return new Date(milliseconds).toLocaleString();
+}
+
+function renderControls(value) {
+  const state = safeText(value, "unknown").toLowerCase();
+  const terminal = ["completed", "failed", "cancelled", "unresolved"].includes(state);
+  ui.pauseButton.disabled = terminal || state === "paused";
+  ui.resumeButton.disabled = terminal || state !== "paused";
+  ui.cancelButton.disabled = terminal;
+  ui.instruction.disabled = terminal;
+  ui.steerButton.disabled = terminal;
 }
 
 function showNotice(message, isError = false) {
@@ -95,8 +120,8 @@ function renderFacts(task) {
   const fields = [
     ["State", task.state],
     ["Epoch", task.epoch],
-    ["Created", task.created_at || task.created],
-    ["Updated", task.updated_at || task.updated],
+    ["Created", formatTimestamp(task.created_at ?? task.created)],
+    ["Updated", formatTimestamp(task.updated_at ?? task.updated)],
   ];
   for (const [name, value] of fields) {
     const wrapper = document.createElement("div");
@@ -133,7 +158,9 @@ function renderEvents(events) {
     const head = document.createElement("div");
     head.className = "event-head";
     appendText(head, "strong", eventTitle(event), null);
-    appendText(head, "time", eventTime(event), null);
+    const rawTime = eventTime(event);
+    const time = appendText(head, "time", formatTimestamp(rawTime), null);
+    time.title = safeText(rawTime);
     item.append(head);
     appendText(item, "p", eventDetail(event), null);
     ui.timeline.append(item);
@@ -147,6 +174,7 @@ function renderDetail(task, events) {
   ui.detailId.textContent = safeText(task.id, "Unknown task");
   ui.detailState.textContent = safeText(task.state, "unknown");
   ui.detailState.dataset.state = knownState(task.state);
+  renderControls(task.state);
   renderFacts(task);
   renderEvents(events);
   ui.record.textContent = JSON.stringify(task, null, 2);
