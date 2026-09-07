@@ -1,3 +1,4 @@
+import copy
 from dataclasses import replace
 
 import pytest
@@ -76,3 +77,13 @@ def test_unregistered_repository_is_rejected(tmp_path):
     config, _ = load(tmp_path, data())
     with pytest.raises(ProfileError):
         config.repository("unregistered")
+
+
+def test_same_normalized_git_source_cannot_be_registered_under_multiple_ids(tmp_path):
+    value = data()
+    duplicate = copy.deepcopy(value["repositories"][0])
+    duplicate.update(id="another", source="./repo")
+    value["repositories"].append(duplicate)
+
+    with pytest.raises(ProfileError, match="source can only be registered once"):
+        load(tmp_path, value)

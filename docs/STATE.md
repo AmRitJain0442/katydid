@@ -31,6 +31,9 @@ contains the task ID, worker identity, fencing epoch, and Unix expiry timestamp.
 `renew`. Every new grant advances the epoch. This prevents a released or expired lease from
 becoming valid again, including when the same worker later reclaims the task.
 
+Fleet loading also rejects multiple repository IDs that normalize to the same Git source. This
+keeps aliases from bypassing repository-level lease serialization.
+
 Workers use `transition` for pipeline states including `preparing`, `testing`, `diagnosing`,
 `repairing`, `verifying`, `reviewing`, `publishing`, `deploying`, and `monitoring`, or the terminal
 states `completed`, `failed`, `cancelled`, and `unresolved`. Repeated repair, verification, and
@@ -62,3 +65,21 @@ another steering command from blindly replaying that effect.
 An already-running worker observes every control action as a stale lease. This fencing prevents it
 from recording a later success after interruption; it does not imply that an external operation
 already in flight was reversed.
+
+## Controller integration coverage
+
+The controller integration suite creates real temporary Git sources outside the state directory.
+Each source contains a seeded failing implementation and a protected verifier that imports the
+implementation, executes an assertion, and writes JUnit evidence. A deterministic test double is
+injected only for structured diagnosis, repair, and independent review responses.
+
+The suite proves the complete baseline-failure, repair, verification, review, local publication,
+and fast-forward merge path. It also covers repository isolation, review rejection, edits outside
+the central allowlist, missing JUnit evidence, durable cancellation during an AI call, source-head
+changes after enqueue, and real release hooks where failed health initiates rollback and a second
+health check. Git heads, protected files, task events, evidence gates, and release files are
+checked as external outcomes rather than inferred from controller return labels.
+
+Additional regressions require rapid equal-size Python repairs to execute fresh source, reject
+workspace mutations omitted from the structured edit manifest, requeue early work on worker
+shutdown, and distinguish a known pre-publication base move from an uncertain external outcome.

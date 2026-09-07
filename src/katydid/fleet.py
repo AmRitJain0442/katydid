@@ -167,6 +167,7 @@ def load_fleet(path: Path) -> tuple[FleetConfig, str]:
                 raise ValueError("Fleet aliases and anchors are not supported")
         config = FleetConfig.model_validate(yaml.load(source, Loader=UniqueSafeLoader))
         repositories = []
+        source_keys = set()
         for repository in config.repositories:
             location = repository.source
             if location.startswith("https://github.com/"):
@@ -176,6 +177,10 @@ def load_fleet(path: Path) -> tuple[FleetConfig, str]:
                 raise ValueError("Only local Git paths and HTTPS GitHub repositories are supported")
             else:
                 location = str((path.parent / location).resolve())
+            source_key = location.casefold().removesuffix(".git")
+            if source_key in source_keys:
+                raise ValueError("A Git source can only be registered once; combine its checks")
+            source_keys.add(source_key)
             repositories.append(repository.model_copy(update={"source": location}))
         state = str((path.parent / config.state_directory).resolve())
         config = config.model_copy(update={"state_directory": state, "repositories": repositories})
