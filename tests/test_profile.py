@@ -117,3 +117,10 @@ def test_profile_digest_changes_with_source(tmp_path):
     before = make_plan(path, "pull-request").profile_sha256
     path.write_text(BASE + "# new revision\n", encoding="utf-8")
     assert make_plan(path, "pull-request").profile_sha256 != before
+
+
+@pytest.mark.parametrize("executable", ["run.cmd", "C:/tools/RUN.BAT"])
+def test_batch_launchers_require_an_explicit_shell(tmp_path, executable):
+    text = BASE.replace("argv: [python, test.py]", f"argv: ['{executable}']")
+    with pytest.raises(ProfileError, match="explicit shell"):
+        make_plan(profile(tmp_path, text), "pull-request")

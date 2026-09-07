@@ -37,6 +37,10 @@ Added fresh per-run/check artifacts, expanded argument arrays, exact profile has
 
 Added a real `katydid.yaml` that executes lint, formatting, strict typing, and pytest through Katydid. Added a separate pricing example with its own profile and JUnit-producing tests. GitHub Actions validates Ubuntu 24.04 and Windows Server 2022 using pinned action commits, locked project dependencies, read-only permissions, and seven-day evidence retention. The README distinguishes implemented capabilities from the blueprint. Local validation passed the self-profile, example profile, and distribution build; hosted CI is the authority for cross-platform results on each pushed revision.
 
+### 6. Launcher and interruption regression checks
+
+Rejected direct batch launchers to avoid Windows' implicit shell behaviour and documented explicit-shell alternatives. Added a process-level regression that requests cancellation from a second CLI invocation and verifies terminal state, nonpassing evidence, and exit code 130. This supplements the in-process cancellation and process-tree timeout tests.
+
 ## Next milestone
 
 Add centrally enforced policy independent of repository declarations, a durable run/control store with crash reconciliation, and supervised environment adapters before executing untrusted workloads or adding AI-driven side effects. Preserve this local adapter as the reproducible execution contract. AI coordination should consume proven plans/evidence rather than replace the gate semantics.

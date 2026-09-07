@@ -54,6 +54,8 @@ class Check(BaseModel):
     def valid_argv(cls, value: list[str]) -> list[str]:
         if not value[0].strip() or any("\x00" in arg for arg in value):
             raise ValueError("argv needs an executable and cannot contain NUL characters")
+        if PureWindowsPath(value[0]).suffix.lower() in (".bat", ".cmd"):
+            raise ValueError("Invoke batch files through an explicit shell, not as the executable")
         return value
 
     @field_validator("working_directory")

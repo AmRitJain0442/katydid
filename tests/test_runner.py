@@ -1,4 +1,6 @@
 import json
+import subprocess
+import sys
 import threading
 import time
 
@@ -234,3 +236,35 @@ def test_cancel_rejects_unrecognized_checkpoint(tmp_path, capsys, data):
     assert main(["cancel", str(tmp_path)]) == 2
     assert "recognized" in capsys.readouterr().err
     assert not (tmp_path / "cancel.request").exists()
+
+
+def test_second_cli_can_cancel_a_running_cli(tmp_path):
+    path = make_profile(tmp_path, ["import time; time.sleep(30)"], kind="command", timeout=35)
+    output = tmp_path / "runs"
+    process = subprocess.Popen(
+        [sys.executable, "-m", "katydid", "run", str(path), "--output", str(output)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while True:
+            checkpoints = list(output.glob("*/run.json"))
+            if checkpoints:
+                directory = checkpoints[0].parent
+                break
+            if process.poll() is not None or time.monotonic() >= deadline:
+                pytest.fail("CLI did not publish its initial checkpoint")
+            time.sleep(0.05)
+        assert main(["cancel", str(directory)]) == 0
+        stdout, stderr = process.communicate(timeout=10)
+        assert process.returncode == 130, stderr
+        assert json.loads(stdout)["cancelled"]
+        summary = json.loads((directory / "run.json").read_text())
+        assert summary["state"] == "cancelled"
+        assert not summary["gate"]["passed"]
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=10)

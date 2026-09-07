@@ -45,6 +45,6 @@ python scripts/dev.py cli plan path/to/quality.yaml --stage pull-request
 
 ## Execution contract
 
-The runner slice uses `{python}` as an entire argv element for the current Katydid interpreter. `{report}` is substituted with a fresh per-check JUnit file path. These are the only substitutions; `$VARIABLE`, pipes, and other shell syntax are not expanded. An explicitly invoked shell remains the user's command and is not made safe by this interface.
+The runner uses `{python}` as an entire argv element for the current Katydid interpreter. `{report}` is substituted with a fresh per-check JUnit file path. These are the only substitutions; `$VARIABLE`, pipes, and other shell syntax are not expanded. Direct `.bat`/`.cmd` executables are rejected because Windows can launch them through an implicit shell. Choose a native executable or explicitly invoke the intended shell instead. An explicitly invoked shell remains the user's command and is not made safe by this interface.
 
 A `test` check must write JUnit containing actual test cases. A successful process with missing, malformed, empty, or entirely skipped test evidence does not pass. A `command` check uses its exit status and should represent builds/static commands, not hide test suites. The local profile currently declares its own required checks; central non-overridable firm policies are not implemented yet.
