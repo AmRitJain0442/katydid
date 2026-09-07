@@ -135,7 +135,13 @@ def _execute(
     if not cwd.is_relative_to(Path(plan.root)) or not cwd.is_dir():
         return CheckResult(check.id, Status.ERROR, "Working directory changed or escaped the root")
     environment = os.environ.copy()
-    environment.update(KATYDID_RUN_ID=run_id, KATYDID_REPORT_PATH=str(report), PYTHONUNBUFFERED="1")
+    environment.update(
+        KATYDID_RUN_ID=run_id,
+        KATYDID_REPORT_PATH=str(report),
+        PYTHONUNBUFFERED="1",
+        PYTHONDONTWRITEBYTECODE="1",
+        PYTHONPYCACHEPREFIX=str(folder / "pycache"),
+    )
     _write_json(
         folder / "invocation.json",
         {"argv": argv, "cwd": str(cwd), "timeout_seconds": check.timeout_seconds},

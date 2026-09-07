@@ -1,4 +1,6 @@
 import json
+import os
+import py_compile
 import subprocess
 import sys
 import threading
@@ -97,6 +99,20 @@ def test_fresh_run_cannot_reuse_old_report(tmp_path):
     assert first.directory != second.directory
     assert first.gate.passed
     assert second.results[0].status == Status.MISSING_EVIDENCE
+
+
+def test_python_checks_ignore_stale_same_size_bytecode(tmp_path):
+    module = tmp_path / "application.py"
+    module.write_text("VALUE = 1\n", encoding="utf-8")
+    stamp = module.stat().st_mtime
+    py_compile.compile(str(module), doraise=True)
+    module.write_text("VALUE = 2\n", encoding="utf-8")
+    os.utime(module, (stamp, stamp))
+    profile = make_profile(
+        tmp_path, ["from application import VALUE; assert VALUE == 2"], kind="command"
+    )
+    result = run_plan(make_plan(profile, "pull-request"))
+    assert result.gate.passed
 
 
 def test_argv_handles_spaces_and_literal_shell_text(tmp_path):
