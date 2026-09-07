@@ -27,9 +27,11 @@ A separate fixture branch in this repository contained the seeded defect and pro
 
 The controller fetched the actual merged commit, verified that its tree matched the tested candidate, ran the registered local deployment command, and verified the deployed application was healthy. The task completed with the PR, candidate, merge, and health evidence retained in `.katydid/github-e2e/control/tasks/`.
 
-## Reproduce
+## Dashboard acceptance
 
 The localhost dashboard was also driven through real Chromium: enqueue, pause, steering, cancellation, and a second task completing through the worker all passed. The completed task contained five passing original tests, with no browser runtime errors. Visual inspection caught and fixed a hidden-panel CSS issue. The committed dashboard browser regression and storefront tests run in the browser CI jobs.
+
+## Reproduce
 
 ```text
 python scripts/dev.py sync
@@ -39,6 +41,12 @@ python scripts/dev.py cli demo run .katydid/new-demo --live-ai
 ```
 
 Use a new or empty directory. The live command requires authenticated Codex; it never falls back to a fake response. A successful demo requires actual repair, unchanged protected tests, successful delivery/health, and proven rollback after the intentionally failed release. See the [runbook](RUNBOOK.md) for the full workflow and [Git delivery guide](GIT.md) for registering a GitHub target under standing publication authority.
+
+## Final validation
+
+The complete implementation at `fe7754ffbd2fbfded9a2a026b0f1fc4f30a74165` passed all four [hosted CI jobs](https://github.com/AmRitJain0442/katydid/actions/runs/34118489785): core verification and real Chromium acceptance on both Windows and Linux. The built wheel was then installed into an isolated uv environment; CLI startup and packaged dashboard assets passed smoke checks.
+
+A fresh live repetition in `.katydid/final-live/acceptance.json` passed after the final control and commit-integrity fixes. It recorded six real AI calls and exactly six durable call reservations: three for pricing, zero for catalog, and three for recovery. Pricing completed with a healthy deployment; catalog completed healthy; recovery correctly failed after its previous deployed application was restored and verified healthy.
 
 ## Interpretation
 
