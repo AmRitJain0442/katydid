@@ -1,4 +1,4 @@
-# Firm-wide automated testing and CI/CD platform
+# Katydid: firm-wide automated testing and CI/CD platform
 
 **Status:** Architecture and implementation blueprint; no platform has been deployed.
 

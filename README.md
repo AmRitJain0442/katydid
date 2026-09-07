@@ -1,4 +1,6 @@
-# Automated testing, CI/CD, and AI bug hunting
+# Katydid
+
+Automated testing, CI/CD, and autonomous AI bug hunting.
 
 A design blueprint for a firm-wide platform that adapts to different repositories and automates testing, bug hunting, verification, repair, review, and delivery.
 
