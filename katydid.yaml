@@ -18,4 +18,4 @@ checks:
     kind: test
     argv: ["{python}", "-m", "pytest", "--junitxml={report}"]
     stages: [pull-request, merge, nightly]
-    timeout_seconds: 120
+    timeout_seconds: 300

@@ -10,6 +10,7 @@ from pathlib import Path
 from katydid import __version__
 from katydid.profile import ProfileError, make_plan
 from katydid.runner import run_plan
+from katydid.service import add_commands, handle
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -27,8 +28,11 @@ def main(argv: list[str] | None = None) -> int:
             command.add_argument("--output", type=Path, help="Parent directory for unique runs")
     cancel_command = subparsers.add_parser("cancel", help="Request cancellation of a local run")
     cancel_command.add_argument("run_directory", type=Path)
+    add_commands(subparsers)
     args = parser.parse_args(argv)
     try:
+        if args.command in ("fleet", "doctor", "task", "worker", "serve", "demo"):
+            return handle(args)
         if args.command == "cancel":
             summary = args.run_directory / "run.json"
             data = json.loads(summary.read_text(encoding="utf-8"))
@@ -77,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             return 130 if run.cancelled else (0 if run.gate.passed else 1)
-    except (ProfileError, OSError, ValueError) as exc:
+    except (ProfileError, OSError, ValueError, RuntimeError, KeyError) as exc:
         print(f"katydid: {exc}", file=sys.stderr)
         return 2
     if args.command == "plan":

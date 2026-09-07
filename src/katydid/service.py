@@ -1,0 +1,205 @@
+"""CLI and localhost service entry points for fleet automation."""
+
+import argparse
+import json
+import shutil
+import signal
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+from typing import Any
+
+from katydid.ai import codex_command
+from katydid.controller import Controller
+from katydid.dashboard import make_server
+from katydid.fleet import load_fleet
+
+
+def add_commands(subparsers: Any) -> None:
+    fleet = subparsers.add_parser("fleet", help="Validate the central repository registry")
+    fleet.add_argument("file", type=Path)
+    doctor = subparsers.add_parser("doctor", help="Check local tools and AI authentication")
+    doctor.add_argument("--fleet", type=Path, required=True)
+    task = subparsers.add_parser("task", help="Submit, inspect, or interrupt durable tasks")
+    task.add_argument("--fleet", type=Path, required=True)
+    actions = task.add_subparsers(dest="action", required=True)
+    submit = actions.add_parser("submit")
+    submit.add_argument("repository")
+    submit.add_argument("--key")
+    actions.add_parser("list")
+    for name in ("show", "events", "pause", "resume", "cancel", "steer"):
+        action = actions.add_parser(name)
+        action.add_argument("id")
+        if name == "steer":
+            action.add_argument("instruction")
+    for name in ("worker", "serve"):
+        parser = subparsers.add_parser(name)
+        parser.add_argument("--fleet", type=Path, required=True)
+        parser.add_argument(
+            "--watch", action="store_true", help="Discover registered branch changes"
+        )
+        parser.add_argument("--interval", type=int, default=60)
+        parser.add_argument(
+            "--schedule-seconds",
+            type=int,
+            default=0,
+            help="Also recheck unchanged heads on this schedule; zero disables",
+        )
+        if name == "worker":
+            parser.add_argument("--once", action="store_true")
+        else:
+            parser.add_argument("--host", default="127.0.0.1")
+            parser.add_argument("--port", type=int, default=8765)
+    demo = subparsers.add_parser("demo", help="Create or run the reproducible local fleet demo")
+    demo.add_argument("action", choices=("init", "run"))
+    demo.add_argument("directory", type=Path)
+    demo.add_argument("--live-ai", action="store_true", help="Run real authenticated model calls")
+
+
+def _print(value: Any) -> None:
+    print(json.dumps(value, indent=2))
+
+
+def doctor(fleet: Path) -> int:
+    config, _digest = load_fleet(fleet)
+    checks: dict[str, Any] = {"python": sys.version.split()[0]}
+    passed = True
+    for name, argv in (
+        ("git", ["git", "--version"]),
+        ("codex", [*codex_command(config.ai), "--version"]),
+        ("ai_auth", [*codex_command(config.ai), "login", "status"]),
+    ):
+        try:
+            result = subprocess.run(argv, capture_output=True, text=True, timeout=20, check=False)
+            checks[name] = {
+                "available": result.returncode == 0,
+                "detail": (result.stdout + result.stderr).strip()[:1000],
+            }
+            passed &= result.returncode == 0
+        except (OSError, subprocess.SubprocessError) as exc:
+            checks[name] = {"available": False, "detail": str(exc)}
+            passed = False
+    if any(repo.delivery.mode == "github" for repo in config.repositories):
+        if not shutil.which("gh"):
+            checks["github_auth"] = {"available": False}
+            passed = False
+        else:
+            result = subprocess.run(
+                ["gh", "auth", "status"], capture_output=True, text=True, timeout=20
+            )
+            # gh auth status can include a masked token; only expose the exit status.
+            checks["github_auth"] = {"available": result.returncode == 0}
+            passed &= result.returncode == 0
+    _print({"passed": passed, "checks": checks})
+    return 0 if passed else 1
+
+
+def handle(args: argparse.Namespace) -> int:
+    value: Any
+    result: Any
+    if args.command == "fleet":
+        config, digest = load_fleet(args.file)
+        _print(
+            {
+                "valid": True,
+                "sha256": digest,
+                "repositories": [r.id for r in config.repositories],
+                "state_directory": config.state_directory,
+            }
+        )
+        return 0
+    if args.command == "doctor":
+        return doctor(args.fleet)
+    if args.command == "demo":
+        from katydid.demo import initialize, run_demo
+
+        if args.action == "init":
+            _print({"fleet": str(initialize(args.directory))})
+            return 0
+        if not args.live_ai:
+            raise ValueError(
+                "Demo run requires --live-ai; deterministic fixtures run through pytest"
+            )
+        result = run_demo(args.directory)
+        _print(result)
+        return 0 if result["passed"] else 1
+    controller = Controller(args.fleet)
+    if args.command == "task":
+        if args.action == "submit":
+            value = controller.enqueue(args.repository, args.key)
+        elif args.action == "list":
+            value = controller.store.list_tasks()
+        elif args.action == "show":
+            value = controller.store.get_task(args.id)
+        elif args.action == "events":
+            value = controller.store.events(args.id)
+        else:
+            value = controller.store.control(
+                args.id, args.action, getattr(args, "instruction", None)
+            )
+        _print(value)
+        return 0
+    if args.interval < 1 or args.schedule_seconds < 0:
+        raise ValueError("interval must be positive and schedule-seconds must be nonnegative")
+    stop = threading.Event()
+    previous = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
+    for sig in previous:
+        signal.signal(sig, lambda _sig, _frame: stop.set())
+    try:
+        if args.command == "worker" and args.once:
+            if args.watch:
+                controller.discover()
+            result = controller.work_once(stop)
+            _print(result)
+            return 0 if result is None or result["state"] == "completed" else 1
+
+        def work() -> None:
+            discovered = 0.0
+            while not stop.is_set():
+                try:
+                    if args.watch and time.monotonic() - discovered >= args.interval:
+                        period = (
+                            int(time.time() // args.schedule_seconds)
+                            if args.schedule_seconds
+                            else None
+                        )
+                        controller.discover(period=period)
+                        discovered = time.monotonic()
+                    result = controller.work_once(stop)
+                    if result is not None:
+                        print(
+                            f"Task {result['id']}: {result['state']}", file=sys.stderr, flush=True
+                        )
+                    else:
+                        stop.wait(0.5)
+                except Exception as exc:
+                    print(f"Worker error: {exc}", file=sys.stderr, flush=True)
+                    stop.wait(min(args.interval, 5))
+
+        if args.command == "worker":
+            work()
+            return 0
+        server = make_server(
+            controller.store,
+            [repo.id for repo in controller.config.repositories],
+            controller.enqueue,
+            args.host,
+            args.port,
+        )
+        server.timeout = 0.25
+        thread = threading.Thread(target=work, daemon=True, name="katydid-worker")
+        thread.start()
+        print(f"Katydid dashboard: http://{args.host}:{server.server_port}", flush=True)
+        try:
+            while not stop.is_set():
+                server.handle_request()
+        finally:
+            server.server_close()
+            stop.set()
+            thread.join(timeout=65)
+        return 0
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
