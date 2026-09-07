@@ -10,7 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from katydid.ai import AIProvider, CodexProvider, Diagnosis, Repair, Review
+from katydid.ai import AIProvider, CodexProvider, Diagnosis, Repair, Response, Review
 from katydid.fleet import RepositoryConfig, enforce_policy, load_fleet
 from katydid.profile import Check, Plan, PlannedCheck, ProfileError, make_plan
 from katydid.runner import Run, _write_json, run_plan
@@ -197,6 +197,12 @@ class Controller:
             if not repo.editable_paths:
                 raise ControllerError("Checks failed and central policy grants no editable files")
             provider = self.provider_factory(folder / "ai")
+
+            def ask(role: str, data: dict[str, Any], schema: type[Response]) -> Response:
+                active()
+                self.store.reserve_ai_call(lease, role, self.config.ai.max_calls_per_task)
+                return provider.ask(role, data, schema, cancelled)
+
             context: dict[str, Any] = {
                 "standing_requirements": repo.requirements,
                 "operator_instructions": task["instructions"],
@@ -205,7 +211,7 @@ class Controller:
                 "baseline": evidence["baseline"],
             }
             state("diagnosing")
-            diagnosis = provider.ask("diagnosis", context, Diagnosis, cancelled)
+            diagnosis = ask("diagnosis", context, Diagnosis)
             active()
             evidence["diagnosis"] = diagnosis.model_dump()
             context["diagnosis"] = diagnosis.model_dump()
@@ -219,7 +225,7 @@ class Controller:
                 context["files"] = snapshot_files(
                     workspace.path, repo.context_paths, self.config.ai.max_context_bytes
                 )
-                proposal = provider.ask("repair", context, Repair, cancelled)
+                proposal = ask("repair", context, Repair)
                 active()
                 apply_edits(
                     workspace, [edit.model_dump() for edit in proposal.edits], repo.editable_paths
@@ -247,7 +253,7 @@ class Controller:
                 review_context = {
                     key: value for key, value in context.items() if key != "diagnosis"
                 }
-                review = provider.ask("review", review_context, Review, cancelled)
+                review = ask("review", review_context, Review)
                 active()
                 evidence["review"] = review.model_dump()
                 if review.approved and not review.concerns:

@@ -185,13 +185,14 @@ def run_demo(directory: Path) -> dict[str, Any]:
     receipts = list(controller.directory.glob("tasks/*/*/ai/*/receipt.json"))
     real_calls = [json.loads(path.read_text(encoding="utf-8")) for path in receipts]
     recovery_result = recovery.get("result") or {}
+    recovery_health = recovery_result.get("rollback_health") or {}
     passed = (
         pricing["state"] == "completed"
         and pricing["result"]["outcome"] == "repaired"
         and catalog["state"] == "completed"
         and catalog["result"]["outcome"] == "healthy"
         and recovery["state"] == "failed"
-        and recovery_result.get("rollback_health", {}).get("gate", {}).get("passed") is True
+        and recovery_health.get("gate", {}).get("passed") is True
         and unchanged
         and len(real_calls) >= 6
         and all(call["provider"] == "codex" for call in real_calls)

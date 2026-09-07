@@ -250,10 +250,11 @@ def test_host_and_origin_checks_block_browser_rebinding():
 
 
 def test_body_limit_and_path_traversal_are_rejected():
-    with running_dashboard() as (_, port):
-        oversized = b"{" + b" " * MAX_REQUEST_BYTES + b"}"
-        status, _, _ = request(port, "POST", "/api/tasks", oversized, mutation_headers(port))
+    with running_dashboard() as (store, port):
+        headers = mutation_headers(port, **{"Content-Length": str(MAX_REQUEST_BYTES + 1)})
+        status, _, _ = request(port, "POST", "/api/tasks", headers=headers)
         assert status == 413
+        assert set(store.tasks) == {"task-1"}
 
         for path in ("/static/../dashboard.py", "/static/%2e%2e/dashboard.py", "/api/tasks/a%2Fb"):
             status, _, _ = request(port, "GET", path)

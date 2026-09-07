@@ -366,6 +366,32 @@ class Store:
             if row["state"] in TERMINAL_STATES or row["state"] == "paused":
                 raise StaleLease(f"task {lease.task_id!r} cannot be executed")
 
+    def reserve_ai_call(self, lease: Lease, role: str, limit: int) -> int:
+        """Charge the durable task budget before dispatch, including retries across epochs."""
+        self._validate_ttl(limit)
+        now = time.time()
+        with self._write() as connection:
+            row = self._required_task(connection, lease.task_id)
+            self._validate_lease(row, lease, now)
+            count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM task_events WHERE task_id = ? AND kind = 'ai_call_reserved'",
+                    (lease.task_id,),
+                ).fetchone()[0]
+            )
+            if count >= limit:
+                raise StoreError("Durable AI task call budget exhausted")
+            self._event(
+                connection,
+                lease.task_id,
+                "ai_call_reserved",
+                row["state"],
+                lease.epoch,
+                {"role": role, "call": count + 1, "limit": limit},
+                now,
+            )
+            return count + 1
+
     def transition(
         self,
         lease: Lease,

@@ -10,6 +10,27 @@ def make_store(tmp_path):
     return Store(tmp_path / "state.db")
 
 
+def test_ai_budget_survives_release_and_new_worker_epoch(tmp_path):
+    store = make_store(tmp_path)
+    task = store.create_task("demo", {})
+    lease = store.claim(task["id"], "first")
+    assert store.reserve_ai_call(lease, "diagnosis", 2) == 1
+    store.release(lease)
+    restarted = make_store(tmp_path)
+    newer = restarted.claim(task["id"], "second")
+    assert restarted.reserve_ai_call(newer, "repair", 2) == 2
+    with pytest.raises(RuntimeError, match="budget exhausted"):
+        restarted.reserve_ai_call(newer, "review", 2)
+    with pytest.raises(StaleLease):
+        restarted.reserve_ai_call(lease, "repair", 2)
+    assert (
+        len(
+            [event for event in restarted.events(task["id"]) if event["kind"] == "ai_call_reserved"]
+        )
+        == 2
+    )
+
+
 def test_tasks_are_durable_and_idempotent(tmp_path):
     store = make_store(tmp_path)
     task = store.create_task("org/repo", {"revision": "abc"}, "request-1")
