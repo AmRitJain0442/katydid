@@ -2,11 +2,13 @@
 
 Automated testing, CI/CD, and autonomous AI bug hunting.
 
-A design blueprint for a firm-wide platform that adapts to different repositories and automates testing, bug hunting, verification, repair, review, and delivery.
+A platform in development for adaptable repository testing, with a blueprint for autonomous bug hunting, verification, repair, review, and delivery.
 
-**Status:** Architecture and planning. This repository does not yet contain an implemented platform or deployed automation.
+**Status:** Implementation started. The pinned Python CLI foundation is available; the full autonomous platform is not yet implemented.
 
 ## Start here
+
+See the [development environment](docs/DEVELOPMENT.md) for exact tool versions and setup commands, and the [implementation record](docs/IMPLEMENTATION.md) for completed slices and next steps.
 
 Read the [Automated Testing Platform Blueprint](AUTOMATED_TESTING_PLATFORM_BLUEPRINT.md) for the complete architecture, tool selections, execution steps, Mermaid diagrams, and implementation acceptance criteria.
 
