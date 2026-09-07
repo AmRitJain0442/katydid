@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from katydid import __version__
+from katydid.environment import EnvironmentResult, EnvironmentSession
 from katydid.evidence import CheckResult, Gate, Status, evaluate_gate, read_junit
 from katydid.profile import Plan, PlannedCheck, ProfileError
 
@@ -36,6 +37,7 @@ class Run:
     results: tuple[CheckResult, ...]
     gate: Gate
     cancelled: bool
+    environment: EnvironmentResult | None = None
 
 
 def _write_json(path: Path, value: Any) -> None:
@@ -122,19 +124,29 @@ def _execute(
     run_id: str,
     cancel: threading.Event,
     cancel_file: Path,
+    environment_directory: Path | None = None,
 ) -> CheckResult:
     started = time.monotonic()
     report = folder / "junit.xml"
     stdout = folder / "stdout.log"
     stderr = folder / "stderr.log"
-    argv = [
-        sys.executable if arg == "{python}" else arg.replace("{report}", str(report))
-        for arg in check.argv
-    ]
+    argv = []
+    for arg in check.argv:
+        if arg == "{python}":
+            arg = sys.executable
+        else:
+            arg = arg.replace("{report}", str(report)).replace("{run_id}", run_id)
+            if environment_directory is not None:
+                arg = arg.replace("{environment}", str(environment_directory))
+        argv.append(arg)
     cwd = Path(check.working_directory).resolve()
     if not cwd.is_relative_to(Path(plan.root)) or not cwd.is_dir():
         return CheckResult(check.id, Status.ERROR, "Working directory changed or escaped the root")
     environment = os.environ.copy()
+    if environment_directory is not None:
+        environment["KATYDID_ENVIRONMENT_DIR"] = str(environment_directory)
+    else:
+        environment.pop("KATYDID_ENVIRONMENT_DIR", None)
     environment.update(
         KATYDID_RUN_ID=run_id,
         KATYDID_REPORT_PATH=str(report),
@@ -225,6 +237,8 @@ def run_plan(
     directory.mkdir(parents=True, exist_ok=False)
     cancel_file = directory / "cancel.request"
     results: list[CheckResult] = []
+    session: EnvironmentSession | None = None
+    execution_error: str | None = None
     metadata = {
         "schema_version": 1,
         "run_id": run_id,
@@ -240,6 +254,15 @@ def run_plan(
 
     def checkpoint(state: str) -> Gate:
         gate = evaluate_gate(plan, results)
+        reasons = list(gate.reasons)
+        if session is not None:
+            if not session.ready:
+                reasons.append("Environment preparation/readiness did not succeed")
+            if not session.cleanup_complete:
+                reasons.append("Environment cleanup is incomplete or failed")
+        if execution_error is not None:
+            reasons.append(execution_error)
+        gate = Gate(not reasons, tuple(reasons), gate.advisories)
         if state != "completed":
             gate = Gate(False, (*gate.reasons, f"Run is {state}"), gate.advisories)
         _write_json(
@@ -250,25 +273,83 @@ def run_plan(
                 "updated_at": datetime.now(UTC).isoformat(),
                 "results": [asdict(result) for result in results],
                 "gate": asdict(gate),
+                "environment": asdict(session.snapshot()) if session else None,
+                "execution_error": execution_error,
             },
         )
         return gate
 
-    checkpoint("running")
-    if on_start is not None:
-        on_start(directory)
-    for index, check in enumerate(plan.checks):
-        if cancel.is_set() or cancel_file.exists():
-            cancel.set()
-            results.append(CheckResult(check.id, Status.CANCELLED, "Cancelled before execution"))
-        else:
-            folder = directory / f"{index:03d}-{check.id}"
-            folder.mkdir()
-            result = _execute(check, plan, folder, run_id, cancel, cancel_file)
-            results.append(result)
-            if result.status == Status.CANCELLED:
-                cancel.set()
+    if plan.environment is not None:
+        environment_directory = directory / "environment" / "data"
+
+        def lifecycle_check(
+            check: PlannedCheck, folder: Path, interrupted: threading.Event, marker: Path
+        ) -> CheckResult:
+            return _execute(check, plan, folder, run_id, interrupted, marker, environment_directory)
+
+        def lifecycle_checkpoint() -> None:
+            checkpoint("running")
+
+        session = EnvironmentSession(
+            plan.environment,
+            directory / "environment",
+            lifecycle_check,
+            _write_json,
+            lifecycle_checkpoint,
+        )
+    try:
         checkpoint("running")
-    cancelled = cancel.is_set() or cancel_file.exists()
-    gate = checkpoint("cancelled" if cancelled else "completed")
-    return Run(run_id, directory, tuple(results), gate, cancelled)
+        if on_start is not None:
+            on_start(directory)
+        ready = session.prepare(cancel, cancel_file) if session else True
+        for index, check in enumerate(plan.checks):
+            if cancel.is_set() or cancel_file.exists():
+                cancel.set()
+                results.append(
+                    CheckResult(check.id, Status.CANCELLED, "Cancelled before execution")
+                )
+            elif not ready:
+                results.append(
+                    CheckResult(
+                        check.id,
+                        Status.ERROR,
+                        "Environment preparation/readiness failed; check not executed",
+                    )
+                )
+            else:
+                folder = directory / f"{index:03d}-{check.id}"
+                folder.mkdir()
+                result = _execute(
+                    check,
+                    plan,
+                    folder,
+                    run_id,
+                    cancel,
+                    cancel_file,
+                    session.data if session else None,
+                )
+                results.append(result)
+                if result.status == Status.CANCELLED:
+                    cancel.set()
+            checkpoint("running")
+    except BaseException as exc:
+        execution_error = f"Execution aborted: {type(exc).__name__}: {exc}"
+        if session is not None:
+            session.error = execution_error
+        raise
+    finally:
+        try:
+            if session is not None:
+                session.cleanup()
+        except BaseException as exc:
+            cleanup_error = f"Cleanup aborted: {type(exc).__name__}: {exc}"
+            execution_error = (
+                f"{execution_error}; {cleanup_error}" if execution_error else cleanup_error
+            )
+            raise
+        finally:
+            cancelled = cancel.is_set() or cancel_file.exists()
+            gate = checkpoint("cancelled" if cancelled else "completed")
+    return Run(
+        run_id, directory, tuple(results), gate, cancelled, session.snapshot() if session else None
+    )

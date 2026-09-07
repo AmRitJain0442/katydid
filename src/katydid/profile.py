@@ -7,7 +7,7 @@ from pathlib import Path, PureWindowsPath
 from typing import Annotated, Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from yaml.nodes import MappingNode
 
 Stage = Literal["pull-request", "merge", "nightly"]
@@ -74,6 +74,37 @@ class Check(BaseModel):
         return value
 
 
+class Readiness(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    check: Check
+    timeout_seconds: int = Field(default=60, ge=1, le=3600)
+    interval_seconds: float = Field(default=1.0, ge=0.05, le=30)
+    max_attempts: int = Field(default=20, ge=1, le=100)
+
+
+class Environment(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    prepare: list[Check] = Field(min_length=1, max_length=20)
+    readiness: Readiness | None = None
+    cleanup: list[Check] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def lifecycle_commands(self) -> "Environment":
+        hooks = [*self.prepare, *self.cleanup]
+        if self.readiness is not None:
+            hooks.append(self.readiness.check)
+        for hook in hooks:
+            if hook.kind != "command" or not hook.required:
+                raise ValueError("Environment hooks must be required command checks")
+            if "stages" in hook.model_fields_set:
+                raise ValueError("Environment hooks apply to every run; omit stages")
+        if len({hook.id for hook in hooks}) != len(hooks):
+            raise ValueError("Environment hook IDs must be unique")
+        return self
+
+
 class Profile(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
@@ -81,6 +112,7 @@ class Profile(BaseModel):
     repository: Identifier
     owner: str = Field(min_length=1, max_length=200)
     checks: list[Check] = Field(min_length=1, max_length=100)
+    environment: Environment | None = None
 
     @field_validator("schema_version", mode="before")
     @classmethod
@@ -115,6 +147,21 @@ class PlannedCheck:
 
 
 @dataclass(frozen=True)
+class PlannedReadiness:
+    check: PlannedCheck
+    timeout_seconds: int
+    interval_seconds: float
+    max_attempts: int = 20
+
+
+@dataclass(frozen=True)
+class PlannedEnvironment:
+    prepare: tuple[PlannedCheck, ...]
+    readiness: PlannedReadiness | None
+    cleanup: tuple[PlannedCheck, ...]
+
+
+@dataclass(frozen=True)
 class Plan:
     schema_version: int
     repository: str
@@ -125,6 +172,7 @@ class Plan:
     profile_sha256: str
     checks: tuple[PlannedCheck, ...]
     excluded: tuple[str, ...]
+    environment: PlannedEnvironment | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -159,25 +207,49 @@ def make_plan(path: Path, stage: Stage, root: Path | None = None) -> Plan:
         raise ProfileError(f"Repository root is not a directory: {base}")
     checks: list[PlannedCheck] = []
     excluded: list[str] = []
-    for check in profile.checks:
+
+    def resolve_check(check: Check) -> PlannedCheck:
         working_directory = (base / check.working_directory).resolve()
         if not working_directory.is_relative_to(base) or not working_directory.is_dir():
             raise ProfileError(f"Check {check.id}: working directory must exist within {base}")
+        if profile.environment is None and any("{environment}" in arg for arg in check.argv):
+            raise ProfileError("{environment} requires an environment lifecycle")
+        return PlannedCheck(
+            check.id,
+            check.kind,
+            tuple(check.argv),
+            str(working_directory),
+            check.timeout_seconds,
+            check.required,
+        )
+
+    for check in profile.checks:
+        planned = resolve_check(check)
         if stage not in check.stages:
             excluded.append(f"{check.id}: not configured for stage {stage}")
             continue
-        checks.append(
-            PlannedCheck(
-                check.id,
-                check.kind,
-                tuple(check.argv),
-                str(working_directory),
-                check.timeout_seconds,
-                check.required,
-            )
-        )
+        checks.append(planned)
     if not checks or not any(check.required for check in checks):
         raise ProfileError(f"Stage {stage} must select at least one required check")
+    environment = None
+    if profile.environment is not None:
+        specification = profile.environment
+        probe = specification.readiness
+        readiness = (
+            PlannedReadiness(
+                resolve_check(probe.check),
+                probe.timeout_seconds,
+                probe.interval_seconds,
+                probe.max_attempts,
+            )
+            if probe is not None
+            else None
+        )
+        environment = PlannedEnvironment(
+            tuple(resolve_check(hook) for hook in specification.prepare),
+            readiness,
+            tuple(resolve_check(hook) for hook in specification.cleanup),
+        )
     return Plan(
         1,
         profile.repository,
@@ -188,4 +260,5 @@ def make_plan(path: Path, stage: Stage, root: Path | None = None) -> Plan:
         digest,
         tuple(checks),
         tuple(excluded),
+        environment,
     )
