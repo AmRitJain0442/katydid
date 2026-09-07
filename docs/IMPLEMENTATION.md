@@ -21,9 +21,12 @@ This is a foundation for the blueprint's Phase 1. AI hunting, automatic patch/me
 
 Added the installable CLI, exact Python/uv selection, dependency lock, isolated development commands, and environment documentation. The CLI currently exposes help and version only. Validation: locked sync, CLI version, lint, formatting, and strict type checking.
 
+### 2. Strict profiles and deterministic planning
+
+Added the implemented v1 profile, command argument arrays, explicit stage selection/exclusions, source hashes, strict YAML/Pydantic validation, and resolved working-directory containment. `validate` and `plan` execute no repository code. Added negative tests for ambiguous configuration, invalid types, path escape, empty selections, and duplicate IDs. Windows cannot create the symlink fixture without additional privileges; Linux CI will exercise that case.
+
 ### Planned next slices
 
-2. Strict repository profiles and deterministic planning, with validation tests.
 3. Honest test-evidence parsing and gate semantics.
 4. Local runner with bounded execution, immutable run evidence, and CLI integration.
 5. Windows/Linux CI, working examples, and final environment/run documentation.
