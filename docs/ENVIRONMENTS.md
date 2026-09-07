@@ -7,13 +7,20 @@ values as `KATYDID_ENVIRONMENT_DIR` and `KATYDID_RUN_ID`.
 
 The lifecycle executes in this order:
 
-```text
-create unique directory
-  → ordered prepare commands
-  → readiness probe until ready or deadline
-  → selected test/command checks
-  → all cleanup commands
-  → final aggregate gate
+```mermaid
+flowchart TD
+    Start[Create unique run directory and journal] --> Prepare[Ordered preparation commands]
+    Prepare -->|success| Ready[Bounded readiness probes]
+    Prepare -->|failure| Cleanup[Attempt every cleanup command]
+    Ready -->|ready| Checks[Selected checks and fresh JUnit evidence]
+    Ready -->|failure or budget exhausted| Cleanup
+    Checks -->|pass, failure, timeout, or cancellation| Cleanup
+    Cleanup --> Gate[Aggregate checks and lifecycle evidence]
+    Gate -->|environment failure| Infra[Stop application AI repair]
+    Gate -->|environment healthy, tests fail| AI[Normal AI diagnosis and repair]
+    AI --> Verify[Verification in another fresh environment]
+    Verify --> Start
+    Gate -->|all required outcomes pass| Pass[Passing run]
 ```
 
 Tests do not start until every prepare command succeeds and readiness passes. Cleanup begins after
@@ -61,7 +68,9 @@ Readiness has two bounds. The probe's `timeout_seconds` limits a single attempt,
 readiness timeout limits the whole retry period; `interval_seconds` controls the bounded pause
 between attempts. `max_attempts` adds a separate attempt-count bound (20 by default, 5 in the
 example). Readiness stops at whichever outer bound is reached first. Only the declared readiness
-probe is retried. Its original result, output, and invocation are retained for every attempt.
+probe is retried. Launch errors and cancellation stop immediately. Its original result, output,
+and invocation are retained for every attempt. Process termination and artifact writes can add
+overhead to the configured deadline; a successful probe arriving after the deadline cannot pass.
 
 ## SQLite example
 
@@ -113,7 +122,7 @@ ready, whether cleanup completed, each lifecycle result, and any lifecycle error
 check evidence and aggregate gate remain alongside it.
 
 Preparation, readiness, and cleanup failures are infrastructure outcomes. In controller work they
-stop before AI diagnosis or repair, because changing application files cannot make a failed
+stop before initial AI diagnosis or further repair, because changing application files cannot make a failed
 run-owned environment trustworthy. A failed application check after successful readiness retains
 its test outcome, runs cleanup, and may then enter the normal diagnosis path.
 

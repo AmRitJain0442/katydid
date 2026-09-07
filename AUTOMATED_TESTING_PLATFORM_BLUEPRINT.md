@@ -1,6 +1,6 @@
 # Katydid: firm-wide automated testing and CI/CD platform
 
-**Status:** Architecture and implementation blueprint; no platform has been deployed.
+**Status:** Architecture and implementation blueprint, partially implemented in Katydid. A working single-host controller, AI repair/delivery flow, and local environment lifecycle are implemented; this document also proposes capabilities that remain future work. See the [implementation record](docs/IMPLEMENTATION.md) and [environment increment](docs/ENVIRONMENT_PLAN.md) for verified scope and remaining boundaries.
 
 **Prepared:** 7 September 2026.
 

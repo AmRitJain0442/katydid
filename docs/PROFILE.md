@@ -26,6 +26,7 @@ The profile's parent is the repository root unless `--root` selects another dire
 | `repository` | Lowercase identifier, starts with a letter, at most 64 characters; letters, digits, hyphens |
 | `owner` | Nonblank ownership label, at most 200 characters |
 | `checks` | 1–100 checks with unique identifiers |
+| `environment` | Optional ordered preparation, bounded readiness, and mandatory cleanup; see [Environments](ENVIRONMENTS.md) |
 | `checks[].id` | Same identifier syntax as repository |
 | `kind` | `command` for an exit-code check; `test` for mandatory JUnit evidence |
 | `argv` | Nonempty list of strings; no implicit shell or environment expansion |
@@ -45,6 +46,6 @@ python scripts/dev.py cli plan path/to/quality.yaml --stage pull-request
 
 ## Execution contract
 
-The runner uses `{python}` as an entire argv element for the current Katydid interpreter. `{report}` is substituted with a fresh per-check JUnit file path. These are the only substitutions; `$VARIABLE`, pipes, and other shell syntax are not expanded. Direct `.bat`/`.cmd` executables are rejected because Windows can launch them through an implicit shell. Choose a native executable or explicitly invoke the intended shell instead. An explicitly invoked shell remains the user's command and is not made safe by this interface.
+The runner uses `{python}` as an entire argv element for the current Katydid interpreter. `{report}` supplies a fresh per-check JUnit file path, `{run_id}` the current run identifier, and `{environment}` the unique data directory when a lifecycle is declared. `$VARIABLE`, pipes, and other shell syntax are not expanded. Direct `.bat`/`.cmd` executables are rejected because Windows can launch them through an implicit shell. Choose a native executable or explicitly invoke the intended shell instead. An explicitly invoked shell remains the user's command and is not made safe by this interface.
 
-A `test` check must write JUnit containing actual test cases. A successful process with missing, malformed, empty, or entirely skipped test evidence does not pass. A `command` check uses its exit status and should represent builds/static commands, not hide test suites. The local profile currently declares its own required checks; central non-overridable firm policies are not implemented yet.
+A `test` check must write JUnit containing actual test cases. A successful process with missing, malformed, empty, or entirely skipped test evidence does not pass. A `command` check uses its exit status and should represent builds/static commands, not hide test suites. Standalone runs enforce the profile's required checks; controller tasks additionally enforce registered [central fleet policy](FLEET.md).

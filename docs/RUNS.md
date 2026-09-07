@@ -5,11 +5,11 @@ python scripts/dev.py cli run path/to/quality.yaml
 python scripts/dev.py cli run path/to/quality.yaml --stage nightly --output .katydid/nightly
 ```
 
-The CLI validates and plans immediately before running. It checks that the profile source still matches the plan hash. It does not install application dependencies, start Docker, contact an AI model, clone other repositories, or merge/deploy anything.
+The CLI validates and plans immediately before running. It checks that the profile source still matches the plan hash. An optional [environment lifecycle](ENVIRONMENTS.md) runs declared preparation, readiness, and cleanup commands. Dependency installation and external resources require explicit commands in that profile. The standalone runner does not invoke the AI or Git delivery controller.
 
 ## Execution
 
-Checks run sequentially in manifest order. Ordinary failures do not prevent independent later checks from running. Commands use an argument array with `shell=False`, inherit the current environment, and receive no interactive stdin. `{python}` selects the Katydid interpreter; `{report}` supplies a fresh absolute JUnit path. `KATYDID_RUN_ID` and `KATYDID_REPORT_PATH` are also set for the child.
+After successful preparation and readiness, checks run sequentially in manifest order. Ordinary failures do not prevent independent later checks from running. Commands use an argument array with `shell=False`, inherit the current environment, and receive no interactive stdin. `{python}` selects the Katydid interpreter; `{report}` supplies a fresh absolute JUnit path. `{run_id}` and `KATYDID_RUN_ID` identify this run, and `KATYDID_REPORT_PATH` identifies its report. With a lifecycle, `{environment}` and `KATYDID_ENVIRONMENT_DIR` identify its fresh data directory. Lifecycle outcomes and original hook logs are retained under `environment/` and in `run.json`; unsuccessful cleanup blocks the aggregate gate.
 
 Each run receives an unpredictable unique directory. Each check receives its own fresh report path, so previous-run XML cannot accidentally satisfy a new check. Required test checks need both successful process exit and passing JUnit evidence. Partial skips are reported; an entirely skipped suite does not pass. The supported JUnit subset requires named testcases and consistent counters when supplied. Unsupported/malformed reports fail explicitly rather than being guessed into success.
 
@@ -51,7 +51,7 @@ python scripts/dev.py cli cancel .katydid/runs/<run-id>
 
 The second command requests cancellation; inspect the checkpoint for acknowledgment. It stops the current foreground process tree and marks remaining checks cancelled. SIGTERM is also handled where the operating system delivers it. A finished run is not retrospectively cancelled.
 
-Checks poll every 50 ms. Timeout and cancellation termination use process groups on POSIX and `taskkill /T /F` on Windows, followed by bounded waiting. Cleanup failures appear in the result. The adapter does not undo application side effects and does not implement distributed pause/resume, durable leases, or guaranteed containment of detached children. Commands must remain in the foreground and wait for their own descendants.
+Checks poll every 50 ms. Timeout and cancellation termination use process groups on POSIX and `taskkill /T /F` on Windows, followed by bounded waiting. Process termination failures appear in the result. Configured environment cleanup runs after setup starts, including on cancellation, with independent command timeouts; graceful shutdown waits for it. Commands must implement idempotent disposal of run-owned resources. The standalone runner has no durable lease; fleet tasks use the [controller's leases and interruption](STATE.md). Commands must remain in the foreground and wait for their own descendants; detached children are not guaranteed to be contained.
 
 ## Limits and trust
 
@@ -61,6 +61,6 @@ Checks poll every 50 ms. Timeout and cancellation termination use process groups
 - Timeouts bound ordinary command execution; startup, cleanup, artifact writes, and filesystem stalls can add overhead.
 - Do not edit source during a run. Git metadata is descriptive evidence, not a full source lock.
 - A hard-killed runner can leave a `running` checkpoint and live resources. Its checkpoint stays nonpassing; crash recovery and independent sweeping are future work.
-- Automatic retries, centralized mandatory policy, remote sandboxes, credential filtering, and trusted artifact signing are not implemented.
+- Only declared readiness probes retry automatically in this adapter. Fleet policy and bounded AI repair apply through the controller; remote sandboxes, credential filtering, and trusted artifact signing remain future work.
 
 These limits are explicit acceptance boundaries for this first local adapter, not capabilities implied by the longer-term blueprint.

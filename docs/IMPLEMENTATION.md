@@ -63,7 +63,26 @@ The following slices extend the foundation into a working single-host fleet cont
 
 Subsequent focused commits add the permanent dashboard browser regression, Windows/Linux browser CI, detailed configuration/runbook diagrams, and curated live acceptance evidence. Git history is the source of truth for those revisions.
 
-## Verification and remaining boundaries
+## Sequential improvement: local environment lifecycle
+
+The [environment increment](ENVIRONMENT_PLAN.md) expands the blueprint's partial environment
+capability. Profiles now declare ordered preparation, bounded readiness probes, and mandatory
+cleanup. Every baseline and repair verification gets a separate data directory. Cleanup survives
+ordinary cancellation, partial setup, check failures, and runner exceptions; cleanup journal
+failures cannot suppress later disposal commands. Failed setup or cleanup stops application AI
+repair, and graceful service shutdown waits for the worker's cleanup.
+
+Focused verification covers 20 environment cases and five additional controller scenarios using
+real subprocesses and temporary Git repositories. The SQLite example migrates and seeds actual
+data, verifies three business cases, rejects foreign run identities, and removes its database.
+Both core CI jobs execute that example and retain lifecycle evidence. The [environment guide](ENVIRONMENTS.md)
+documents the schema, flow, retry bounds, ownership checks, and failure handling.
+
+This completes the local lifecycle increment. Containers, external resource expiry/sweeping,
+cloud/device provisioning, and network/credential isolation remain unimplemented; Phase 1's
+broader environment capability remains partial.
+
+## Overall verification and remaining boundaries
 
 The complete quality profile runs lint, formatting, strict mypy, and deterministic pytest through Katydid itself. Real Chromium tests additionally exercise both the sample web application and the controller dashboard. Hosted CI runs both categories on Ubuntu 24.04 and Windows Server 2022 and preserves original evidence for seven days.
 
