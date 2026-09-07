@@ -38,6 +38,8 @@ jobs:
         run: uv run --locked katydid run katydid.yaml
       - name: Run example repository
         run: uv run --locked katydid run examples/python-service/quality.yaml
+      - name: Verify SQLite preparation, readiness, tests, and cleanup
+        run: uv run --locked katydid run examples/sqlite-service/quality.yaml
       - name: Build package
         run: uv build --no-sources
       - name: Preserve test evidence
@@ -48,6 +50,7 @@ jobs:
           path: |
             .katydid/runs/
             examples/python-service/.katydid/runs/
+            examples/sqlite-service/.katydid/runs/
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7

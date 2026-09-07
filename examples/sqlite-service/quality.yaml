@@ -1,0 +1,33 @@
+schema_version: 1
+repository: sqlite-service
+owner: inventory-team
+environment:
+  prepare:
+    - id: sqlite-prepare
+      kind: command
+      argv: ["{python}", "ops.py", "prepare", "{environment}"]
+      timeout_seconds: 20
+      required: true
+  readiness:
+    check:
+      id: sqlite-ready
+      kind: command
+      argv: ["{python}", "ops.py", "ready", "{environment}"]
+      timeout_seconds: 5
+      required: true
+    timeout_seconds: 15
+    interval_seconds: 0.25
+    max_attempts: 5
+  cleanup:
+    - id: sqlite-cleanup
+      kind: command
+      argv: ["{python}", "ops.py", "cleanup", "{environment}"]
+      timeout_seconds: 10
+      required: true
+checks:
+  - id: sqlite-business
+    kind: test
+    argv: ["{python}", "-m", "pytest", "tests.py", "--junitxml={report}"]
+    timeout_seconds: 30
+    stages: [pull-request, merge, nightly]
+    required: true

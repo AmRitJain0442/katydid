@@ -1,0 +1,4 @@
+.katydid/
+__pycache__/
+*.py[cod]
+
