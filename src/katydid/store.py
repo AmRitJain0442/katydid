@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
+import stat
+import tempfile
 import time
 import uuid
 from collections.abc import Iterator
@@ -38,6 +41,8 @@ WORKFLOW_STATES = frozenset(
 )
 CONTROL_ACTIONS = frozenset({"pause", "resume", "cancel", "steer"})
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
+_COMMIT_SHA = re.compile(r"^(?:[a-f0-9]{40}|[a-f0-9]{64})$")
+_REPOSITORY_ID = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 
 
 class StoreError(RuntimeError):
@@ -870,6 +875,74 @@ class Store:
                 now,
             )
             return count + 1
+
+    def record_release_success(self, lease: Lease, commit_sha: str) -> None:
+        """Record a healthy release only while the monitoring lease still owns authority.
+
+        The SQLite write lock serializes this operation with task controls. The filesystem
+        replacement and database event cannot form one crash-atomic transaction; a process or
+        host failure between them requires later pointer/event reconciliation.
+        """
+        if not isinstance(commit_sha, str) or _COMMIT_SHA.fullmatch(commit_sha) is None:
+            raise ValueError("commit_sha must be a full lowercase Git commit SHA")
+        temporary: Path | None = None
+        with self._write() as connection:
+            now = time.time()
+            row = self._required_task(connection, lease.task_id)
+            self._validate_lease(row, lease, now)
+            if row["state"] != "monitoring":
+                raise InvalidTransition("release success requires a task in monitoring state")
+            repository = str(row["repository"])
+            if _REPOSITORY_ID.fullmatch(repository) is None:
+                raise ValueError("release success requires a normalized repository identifier")
+
+            state_directory = self.path.parent.resolve(strict=True)
+            releases = state_directory / "releases"
+            destination_directory = releases / repository
+            for directory in (releases, destination_directory):
+                if directory.exists():
+                    info = directory.lstat()
+                    reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+                    if (
+                        not stat.S_ISDIR(info.st_mode)
+                        or stat.S_ISLNK(info.st_mode)
+                        or bool(getattr(info, "st_file_attributes", 0) & reparse)
+                    ):
+                        raise ValueError("release success path must contain only real directories")
+                else:
+                    directory.mkdir()
+            if destination_directory.resolve(strict=True).parent != releases.resolve(strict=True):
+                raise ValueError("release success path escaped the state directory")
+
+            destination = destination_directory / "last-success.json"
+            try:
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    encoding="utf-8",
+                    dir=destination_directory,
+                    prefix=".last-success-",
+                    suffix=".tmp",
+                    delete=False,
+                ) as stream:
+                    temporary = Path(stream.name)
+                    stream.write(self._json({"commit": commit_sha, "task": lease.task_id}))
+                    stream.write("\n")
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, destination)
+                temporary = None
+                self._event(
+                    connection,
+                    lease.task_id,
+                    "release_success",
+                    "monitoring",
+                    lease.epoch,
+                    {"commit": commit_sha},
+                    now,
+                )
+            finally:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
 
     def transition(
         self,

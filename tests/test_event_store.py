@@ -1,8 +1,11 @@
+import json
 import sqlite3
 import threading
+from contextlib import contextmanager
 
 import pytest
 
+import katydid.store as store_module
 from katydid.store import (
     EventConflict,
     EventNotFound,
@@ -19,6 +22,167 @@ REPLAY_A = "c" * 64
 
 def make_store(tmp_path):
     return Store(tmp_path / "state.db")
+
+
+def monitoring_task(store, repository="service"):
+    task = store.create_task(repository, {})
+    lease = store.claim(task["id"], "release-worker")
+    store.transition(lease, "monitoring")
+    return task, lease
+
+
+def test_release_success_pointer_requires_and_records_current_monitoring_authority(tmp_path):
+    store = make_store(tmp_path)
+    task, lease = monitoring_task(store)
+    commit_sha = "1" * 40
+
+    store.record_release_success(lease, commit_sha)
+
+    pointer = tmp_path / "releases" / "service" / "last-success.json"
+    assert json.loads(pointer.read_text(encoding="utf-8")) == {
+        "commit": commit_sha,
+        "task": task["id"],
+    }
+    event = store.events(task["id"])[-1]
+    assert event["kind"] == "release_success"
+    assert event["state"] == "monitoring"
+    assert event["epoch"] == lease.epoch
+    assert event["details"] == {"commit": commit_sha}
+
+
+def test_pause_after_health_before_release_record_prevents_pointer_mutation(tmp_path):
+    store = make_store(tmp_path)
+    task, lease = monitoring_task(store)
+    store.control(task["id"], "pause")
+
+    with pytest.raises(StaleLease):
+        store.record_release_success(lease, "2" * 40)
+
+    assert not (tmp_path / "releases").exists()
+    assert all(event["kind"] != "release_success" for event in store.events(task["id"]))
+
+
+def test_release_lease_expiring_while_write_lock_waits_cannot_mutate_pointer(tmp_path, monkeypatch):
+    store = make_store(tmp_path)
+    task = store.create_task("service", {})
+    lease = store.claim(task["id"], "release-worker", ttl_seconds=1)
+    store.transition(lease, "monitoring")
+    entered = threading.Event()
+    allow_lock = threading.Event()
+    failures = []
+    clock = [lease.expires_at - 0.1]
+    original_write = store._write
+
+    @contextmanager
+    def delayed_write_lock():
+        with original_write() as connection:
+            entered.set()
+            if not allow_lock.wait(5):
+                raise AssertionError("test did not release delayed write lock")
+            yield connection
+
+    monkeypatch.setattr(store, "_write", delayed_write_lock)
+    monkeypatch.setattr(store_module.time, "time", lambda: clock[0])
+
+    def record():
+        try:
+            store.record_release_success(lease, "9" * 40)
+        except BaseException as exc:
+            failures.append(exc)
+
+    writer = threading.Thread(target=record)
+    writer.start()
+    assert entered.wait(5)
+    clock[0] = lease.expires_at + 0.1
+    allow_lock.set()
+    writer.join(5)
+
+    assert not writer.is_alive()
+    assert len(failures) == 1 and isinstance(failures[0], StaleLease)
+    assert not (tmp_path / "releases").exists()
+    assert all(event["kind"] != "release_success" for event in store.events(task["id"]))
+
+
+def test_concurrent_control_waits_for_release_pointer_critical_section(tmp_path, monkeypatch):
+    store = make_store(tmp_path)
+    task, lease = monitoring_task(store)
+    entered = threading.Event()
+    allow_replace = threading.Event()
+    control_finished = threading.Event()
+    failures = []
+    original_replace = store_module.os.replace
+
+    def blocked_replace(source, destination):
+        entered.set()
+        if not allow_replace.wait(5):
+            raise AssertionError("test did not release pointer replacement")
+        original_replace(source, destination)
+
+    monkeypatch.setattr(store_module.os, "replace", blocked_replace)
+
+    def record():
+        try:
+            store.record_release_success(lease, "3" * 40)
+        except BaseException as exc:
+            failures.append(exc)
+
+    def control():
+        try:
+            Store(tmp_path / "state.db").control(task["id"], "pause")
+        except BaseException as exc:
+            failures.append(exc)
+        finally:
+            control_finished.set()
+
+    writer = threading.Thread(target=record)
+    writer.start()
+    assert entered.wait(5)
+    controller = threading.Thread(target=control)
+    controller.start()
+    assert not control_finished.wait(0.1)
+    allow_replace.set()
+    writer.join(5)
+    controller.join(5)
+
+    assert not writer.is_alive() and not controller.is_alive()
+    assert failures == []
+    assert store.get_task(task["id"])["state"] == "unresolved"
+    kinds = [event["kind"] for event in store.events(task["id"])]
+    assert kinds[-2:] == ["release_success", "pause"]
+    assert (tmp_path / "releases" / "service" / "last-success.json").exists()
+
+
+@pytest.mark.parametrize("commit_sha", ["", "A" * 40, "1" * 39, "1" * 41, "x" * 64])
+def test_release_success_rejects_invalid_commit_before_file_mutation(tmp_path, commit_sha):
+    store = make_store(tmp_path)
+    _task, lease = monitoring_task(store)
+
+    with pytest.raises(ValueError, match="commit_sha"):
+        store.record_release_success(lease, commit_sha)
+
+    assert not (tmp_path / "releases").exists()
+
+
+@pytest.mark.parametrize("repository", ["org/repo", "../escape", "UPPER", ".hidden"])
+def test_release_success_rejects_unsafe_repository_path(tmp_path, repository):
+    store = make_store(tmp_path)
+    _task, lease = monitoring_task(store, repository)
+
+    with pytest.raises(ValueError, match="repository identifier"):
+        store.record_release_success(lease, "4" * 40)
+
+    assert not (tmp_path / "releases").exists()
+
+
+def test_release_success_rejects_live_lease_outside_monitoring(tmp_path):
+    store = make_store(tmp_path)
+    task = store.create_task("service", {})
+    lease = store.claim(task["id"], "worker")
+
+    with pytest.raises(InvalidTransition, match="monitoring"):
+        store.record_release_success(lease, "5" * 64)
+
+    assert not (tmp_path / "releases").exists()
 
 
 def ingest(
