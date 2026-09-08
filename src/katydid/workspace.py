@@ -692,6 +692,8 @@ def wait_pull_request(
     expected_head: str,
     cancel: threading.Event,
     timeout_seconds: int = 900,
+    *,
+    required_checks: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """Wait boundedly for one exact PR head to have passing checks and be clean."""
     repo = _github_repo(repo)
@@ -708,6 +710,19 @@ def wait_pull_request(
     ):
         raise WorkspaceError("timeout_seconds must be a positive integer")
     expected_head = expected_head.lower()
+    if (
+        not isinstance(required_checks, tuple)
+        or len(required_checks) > 100
+        or any(
+            not isinstance(name, str)
+            or not name.strip()
+            or len(name) > 200
+            or any(ord(char) < 32 for char in name)
+            for name in required_checks
+        )
+        or len(set(required_checks)) != len(required_checks)
+    ):
+        raise WorkspaceError("Required GitHub checks must be unique bounded names")
     started = time.monotonic()
     deadline = started + timeout_seconds
     while True:
@@ -736,6 +751,21 @@ def wait_pull_request(
         elapsed = time.monotonic() - started
         checks_ready = bool(checks) and "pending" not in states
         no_checks_ready = not checks and elapsed >= NO_CHECK_GRACE_SECONDS
+        if required_checks:
+            for name in required_checks:
+                matches = [
+                    check
+                    for check in checks
+                    if isinstance(check, dict) and check.get("name", check.get("context")) == name
+                ]
+                # Required checks must actually succeed; skipped/neutral cannot satisfy the gate.
+                if not matches or any(
+                    str(check.get("conclusion", check.get("state", ""))).upper() != "SUCCESS"
+                    or _check_state(check) != "passed"
+                    for check in matches
+                ):
+                    checks_ready = False
+            no_checks_ready = False
         if (checks_ready or no_checks_ready) and merge_state == "CLEAN":
             return value
         if merge_state == "DIRTY":
