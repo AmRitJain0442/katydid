@@ -242,12 +242,12 @@ class Controller:
                 if request.mode == "release":
                     self._release(
                         repo,
-                        workspace,
                         evidence["source_sha"],
                         folder,
                         cancelled,
                         state,
                         evidence,
+                        lease=lease,
                         before_hook=fresh,
                     )
                     state("completed", **evidence, outcome="released", ai_calls=0)
@@ -409,7 +409,16 @@ class Controller:
                     raise ControllerError(
                         "Merged tree differs from the tested candidate; refusing release"
                     )
-                self._release(repo, workspace, merged_sha, folder, cancelled, state, evidence)
+                self._release(
+                    repo,
+                    merged_sha,
+                    folder,
+                    cancelled,
+                    state,
+                    evidence,
+                    lease=lease,
+                    before_hook=active,
+                )
             state("completed", **evidence, outcome="repaired")
         except Exception as exc:
             evidence["error"] = str(exc)
@@ -473,22 +482,47 @@ class Controller:
     def _release(
         self,
         repo: RepositoryConfig,
-        workspace: GitWorkspace,
         sha: str,
         folder: Path,
         cancelled: threading.Event,
         state: Callable[..., None],
         evidence: dict[str, Any],
-        before_hook: Callable[[], None] | None = None,
+        *,
+        lease: Lease,
+        before_hook: Callable[[], None],
     ) -> None:
         release = repo.release
         assert release is not None
+
+        def current() -> None:
+            before_hook()
+            if source_head(repo.source, repo.base_branch) != sha:
+                raise ControllerError("Release revision is no longer the current base")
+
+        current()
+        workspace = prepare_workspace(
+            repo.source,
+            folder / "release-workspace",
+            repo.base_branch,
+            f"katydid/release/{lease.task_id}",
+            source_ref=f"refs/heads/{repo.base_branch}",
+            source_sha=sha,
+        )
+        evidence["release_workspace"] = str(workspace.path)
+
+        def pristine() -> None:
+            current()
+            if _git(workspace.path, "rev-parse", "HEAD") != sha or _git(
+                workspace.path, "status", "--porcelain", "--untracked-files=all", "--ignored"
+            ):
+                raise ControllerError("Release checkout differs from the verified commit")
+
+        pristine()
         release_directory = self.directory / "releases" / repo.id
         release_directory.mkdir(parents=True, exist_ok=True)
 
         def hook(check: Check) -> Run:
-            if before_hook is not None:
-                before_hook()
+            pristine()
             cwd = (workspace.path / check.working_directory).resolve()
             if not cwd.is_relative_to(workspace.path) or not cwd.is_dir():
                 raise ProfileError("Release working directory must exist inside the workspace")
@@ -517,7 +551,10 @@ class Controller:
                 ),
                 (),
             )
-            return run_plan(plan, folder / "release-runs", cancelled)
+            result = run_plan(plan, folder / "release-runs", cancelled)
+            evidence.setdefault("release_hooks", []).append(_evidence(result))
+            pristine()
+            return result
 
         state("deploying", merged_sha=sha)
         deploy = hook(release.deploy)
@@ -526,10 +563,8 @@ class Controller:
         health = hook(release.health) if deploy.gate.passed else None
         evidence["health"] = _evidence(health) if health else None
         if health is not None and health.gate.passed:
-            _write_json(
-                release_directory / "last-success.json",
-                {"commit": sha, "task": evidence["task_id"]},
-            )
+            pristine()
+            self.store.record_release_success(lease, sha)
             return
         # Rollback remains subject to the current control epoch, including operator interruption.
         state("deploying", operation="rollback", merged_sha=sha)
