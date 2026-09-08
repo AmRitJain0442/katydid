@@ -13,3 +13,4 @@ build/
 .env
 .env.*
 !.env.example
+gen-lang-client-*.json
