@@ -1,0 +1,9 @@
+[project]
+name = "katydid-security-tools"
+version = "0.0.0"
+requires-python = ">=3.12,<3.13"
+dependencies = ["semgrep==1.176.1"]
+
+[tool.uv]
+package = false
+required-version = "==0.12.10"

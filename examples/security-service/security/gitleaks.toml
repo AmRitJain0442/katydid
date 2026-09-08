@@ -1,0 +1,8 @@
+title = "Katydid security example"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Generated Katydid run evidence"
+paths = ['''(^|/|\\)\.katydid(/|\\)''']

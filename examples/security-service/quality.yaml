@@ -1,0 +1,58 @@
+schema_version: 1
+repository: security-service
+owner: product-security
+checks:
+  - id: static-analysis
+    kind: test
+    argv:
+      - "{python}"
+      - -m
+      - katydid.security
+      - static
+      - --root
+      - .
+      - --config
+      - security/semgrep.yaml
+      - --report
+      - "{report}"
+      - --timeout
+      - "120"
+    timeout_seconds: 150
+    stages: [pull-request, merge, nightly, release]
+    required: true
+  - id: dependency-vulnerabilities
+    kind: test
+    argv:
+      - "{python}"
+      - -m
+      - katydid.security
+      - dependencies
+      - --root
+      - .
+      - --report
+      - "{report}"
+      - --timeout
+      - "180"
+      - --max-db-age-hours
+      - "72"
+    timeout_seconds: 210
+    stages: [pull-request, merge, nightly, release]
+    required: true
+  - id: secret-detection
+    kind: test
+    argv:
+      - "{python}"
+      - -m
+      - katydid.security
+      - secrets
+      - --root
+      - .
+      - --config
+      - security/gitleaks.toml
+      - --report
+      - "{report}"
+      - --timeout
+      - "120"
+    timeout_seconds: 150
+    stages: [pull-request, merge, nightly, release]
+    required: true

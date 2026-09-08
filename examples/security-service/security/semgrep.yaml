@@ -1,0 +1,22 @@
+rules:
+  - id: python-dangerous-eval
+    languages: [python]
+    severity: ERROR
+    message: Do not evaluate strings as Python code.
+    pattern: eval(...)
+  - id: python-shell-command
+    languages: [python]
+    severity: ERROR
+    message: Do not invoke a subprocess through a command shell.
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.run(..., shell=True, ...)
+          - pattern: subprocess.Popen(..., shell=True, ...)
+          - pattern: subprocess.call(..., shell=True, ...)
+  - id: python-unsafe-pickle-load
+    languages: [python]
+    severity: ERROR
+    message: Do not deserialize untrusted pickle data.
+    pattern-either:
+      - pattern: pickle.load(...)
+      - pattern: pickle.loads(...)
