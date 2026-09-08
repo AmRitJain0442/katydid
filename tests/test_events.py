@@ -1,3 +1,4 @@
+import hashlib
 import json
 import subprocess
 import threading
@@ -344,6 +345,32 @@ def test_concurrent_delivery_aliases_create_one_pull_request_task(tmp_path: Path
     assert control.store.group_version("widgets", "github:pull_request:7") == 1
     for delivery in ("delivery-race-1", "delivery-race-2"):
         assert control.store.get_event("github", delivery)["task_id"] == results[0]["task_id"]
+
+
+def test_legacy_receipt_without_replay_key_never_creates_replacement_work(tmp_path: Path) -> None:
+    control = controller(tmp_path)
+    body = pull_payload()
+    body_sha256 = hashlib.sha256(body).hexdigest()
+    legacy = control.store.ingest_event(
+        "github",
+        "delivery-legacy",
+        body_sha256,
+        "widgets",
+        {"legacy": True},
+        group="github:pull_request:7",
+        replay_key=None,
+    )
+
+    def no_lookup(_repository: str, _number: int) -> dict[str, Any]:
+        raise AssertionError("legacy receipt replay must not query GitHub")
+
+    replay = GitHubIngress(control, pull_request=no_lookup).ingest(
+        "pull_request", "delivery-legacy", body
+    )
+
+    assert replay["duplicate"] is True
+    assert replay["task_id"] == legacy["task_id"]
+    assert len(control.store.list_tasks()) == 1
 
 
 def test_invalid_and_disabled_events_are_bounded_before_provider_lookup(tmp_path: Path) -> None:
