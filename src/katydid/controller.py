@@ -105,7 +105,10 @@ class Controller:
             stage: Stage = "merge" if period is None else "nightly"
             key = f"discover:{repo.id}:{head}:{self.digest}:{stage}:{period}"
             request = TaskRequest(
-                config_sha256=self.digest, base_sha=head, stage=stage, mode="check"
+                config_sha256=self.digest,
+                base_sha=head,
+                stage=stage,
+                mode="repair" if repo.editable_paths else "check",
             )
             tasks.append(self.store.create_task(repo.id, request.model_dump(), key))
         return tasks

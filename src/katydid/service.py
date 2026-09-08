@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import shutil
 import signal
 import subprocess
@@ -28,6 +29,10 @@ def add_commands(subparsers: Any) -> None:
     submit = actions.add_parser("submit")
     submit.add_argument("repository")
     submit.add_argument("--key")
+    submit.add_argument(
+        "--stage", choices=("pull-request", "merge", "nightly", "release"), default="pull-request"
+    )
+    submit.add_argument("--mode", choices=("check", "repair", "release"), default="repair")
     actions.add_parser("list")
     for name in ("show", "events", "pause", "resume", "cancel", "steer"):
         action = actions.add_parser(name)
@@ -52,6 +57,11 @@ def add_commands(subparsers: Any) -> None:
         else:
             parser.add_argument("--host", default="127.0.0.1")
             parser.add_argument("--port", type=int, default=8765)
+    webhook = subparsers.add_parser("webhook", help="Receive signed GitHub events on loopback")
+    webhook.add_argument("--fleet", type=Path, required=True)
+    webhook.add_argument("--host", default="127.0.0.1")
+    webhook.add_argument("--port", type=int, default=8766)
+    webhook.add_argument("--secret-env", default="KATYDID_WEBHOOK_SECRET")
     demo = subparsers.add_parser("demo", help="Create or run the reproducible local fleet demo")
     demo.add_argument("action", choices=("init", "run"))
     demo.add_argument("directory", type=Path)
@@ -128,7 +138,7 @@ def handle(args: argparse.Namespace) -> int:
     controller = Controller(args.fleet)
     if args.command == "task":
         if args.action == "submit":
-            value = controller.enqueue(args.repository, args.key)
+            value = controller.enqueue(args.repository, args.key, stage=args.stage, mode=args.mode)
         elif args.action == "list":
             value = controller.store.list_tasks()
         elif args.action == "show":
@@ -141,8 +151,35 @@ def handle(args: argparse.Namespace) -> int:
             )
         _print(value)
         return 0
+    if args.command == "webhook":
+        from katydid.events import GitHubIngress
+        from katydid.webhook import make_webhook_server
+
+        secret = os.environ.get(args.secret_env, "").encode("utf-8")
+        if len(secret) < 32:
+            raise ValueError("Webhook secret environment variable must contain at least 32 bytes")
+        server = make_webhook_server(GitHubIngress(controller), secret, args.host, args.port)
+        stopping = threading.Event()
+        handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
+        for sig in handlers:
+            signal.signal(sig, lambda _sig, _frame: stopping.set())
+        server.timeout = 0.25
+        print(
+            f"GitHub webhook listener: http://{args.host}:{server.server_port}/webhooks/github",
+            flush=True,
+        )
+        try:
+            while not stopping.is_set():
+                server.handle_request()
+        finally:
+            server.server_close()
+            for sig, handler in handlers.items():
+                signal.signal(sig, handler)
+        return 0
     if args.interval < 1 or args.schedule_seconds < 0:
         raise ValueError("interval must be positive and schedule-seconds must be nonnegative")
+    if args.schedule_seconds and not args.watch:
+        raise ValueError("Scheduled discovery requires --watch")
     stop = threading.Event()
     previous = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
     for sig in previous:
@@ -151,6 +188,8 @@ def handle(args: argparse.Namespace) -> int:
         if args.command == "worker" and args.once:
             if args.watch:
                 controller.discover()
+                if args.schedule_seconds:
+                    controller.discover(period=int(time.time() // args.schedule_seconds))
             result = controller.work_once(stop)
             _print(result)
             return 0 if result is None or result["state"] == "completed" else 1
@@ -165,7 +204,9 @@ def handle(args: argparse.Namespace) -> int:
                             if args.schedule_seconds
                             else None
                         )
-                        controller.discover(period=period)
+                        controller.discover()
+                        if period is not None:
+                            controller.discover(period=period)
                         discovered = time.monotonic()
                     result = controller.work_once(stop)
                     if result is not None:

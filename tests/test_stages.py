@@ -254,3 +254,83 @@ def test_repaired_candidate_cannot_publish_when_release_stage_fails(tmp_path):
     assert "candidate_sha" not in result["result"]
     assert source_head(str(repository), "main") == base
     assert not (controller.directory / "releases").exists()
+
+
+def test_cli_stage_submission_and_worker_schedule_select_correct_lanes(tmp_path):
+    from test_service import cli
+
+    repository = staged_repository(tmp_path, "service")
+    controller = make_controller(
+        tmp_path, [repository_policy(repository)], DeterministicTestDouble()
+    )
+    submitted = cli(
+        "task",
+        "--fleet",
+        str(controller.fleet_path),
+        "submit",
+        "service",
+        "--stage",
+        "nightly",
+        "--mode",
+        "check",
+    )
+    assert submitted.returncode == 0, submitted.stderr
+    assert json.loads(submitted.stdout)["payload"]["stage"] == "nightly"
+    worked = cli(
+        "worker",
+        "--fleet",
+        str(controller.fleet_path),
+        "--once",
+        "--watch",
+        "--schedule-seconds",
+        "3600",
+    )
+    assert worked.returncode == 0, worked.stderr
+    assert json.loads(worked.stdout)["result"]["stage"] == "nightly"
+    tasks = controller.store.list_tasks()
+    assert len(tasks) == 3
+    assert sorted(task["payload"]["stage"] for task in tasks) == ["merge", "nightly", "nightly"]
+
+
+def test_pr_cannot_change_protected_verifier_before_container_execution(tmp_path):
+    repository = staged_repository(tmp_path, "service")
+    base = source_head(str(repository), "main")
+    git(repository, "switch", "-c", "feature")
+    (repository / "verify.py").write_text('print("pretend verified")\n')
+    git(repository, "commit", "-am", "weaken verification")
+    head = git(repository, "rev-parse", "HEAD")
+    git(repository, "update-ref", "refs/pull/7/head", head)
+    git(repository, "switch", "main")
+    policy = repository_policy(repository)
+    policy["isolation_policy"] = {
+        "images": ["python@sha256:" + "a" * 64],
+        "files": ["app.py", "verify.py"],
+    }
+    controller = make_controller(tmp_path, [policy], DeterministicTestDouble())
+    request = TaskRequest(
+        config_sha256=controller.digest,
+        base_sha=base,
+        source_sha=head,
+        source_ref="refs/pull/7/head",
+        stage="pull-request",
+        mode="check",
+    )
+    controller.store.create_task("service", request.model_dump())
+    result = controller.work_once()
+    assert result["state"] == "failed"
+    assert "centrally protected checks" in result["result"]["error"]
+    assert "baseline" not in result["result"]
+
+
+def test_nightly_discovery_preserves_centrally_permitted_automatic_repair(tmp_path):
+    repository = staged_repository(tmp_path, "service", healthy=False)
+    provider = DeterministicTestDouble()
+    controller = make_controller(tmp_path, [repository_policy(repository)], provider)
+    task = controller.discover(period=9)[0]
+    assert task["payload"]["mode"] == "repair"
+    result = controller.work_once()
+    assert result["state"] == "completed", result
+    assert result["result"]["stage"] == "nightly"
+    assert result["result"]["outcome"] == "repaired"
+    assert provider.roles == ["diagnosis", "repair", "review"]
+    assert (repository / "app.py").read_text() == "VALUE = 2\n"

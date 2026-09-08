@@ -49,7 +49,9 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("profile", type=Path)
         command.add_argument("--root", type=Path)
         command.add_argument(
-            "--stage", choices=("pull-request", "merge", "nightly"), default="pull-request"
+            "--stage",
+            choices=("pull-request", "merge", "nightly", "release"),
+            default="pull-request",
         )
         if name == "run":
             command.add_argument("--output", type=Path, help="Parent directory for unique runs")
@@ -64,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "sweep":
             return _sweep(args.namespace, args.watch, args.interval)
-        if args.command in ("fleet", "doctor", "task", "worker", "serve", "demo"):
+        if args.command in ("fleet", "doctor", "task", "worker", "serve", "demo", "webhook"):
             return handle(args)
         if args.command == "cancel":
             summary = args.run_directory / "run.json"
