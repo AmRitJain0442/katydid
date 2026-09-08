@@ -329,6 +329,19 @@ class Controller:
             self._assert_files(workspace, repo, protected)
             if diff(workspace) != candidate_diff:
                 raise ControllerError("Candidate changed after verification")
+            if repo.release is not None:
+                release_plan = make_plan(workspace.path / repo.profile, "release", workspace.path)
+                enforce_policy(repo, release_plan)
+                state("verifying", stage="release")
+                release_verified = run_plan(release_plan, folder / "runs", cancelled)
+                active()
+                evidence["release_verification"] = _evidence(release_verified)
+                self._ensure_environment(release_verified)
+                self._assert_files(workspace, repo, protected)
+                if not release_verified.gate.passed or diff(workspace) != candidate_diff:
+                    raise ControllerError(
+                        "Release-stage candidate verification failed before delivery"
+                    )
             active()
             sha = commit(workspace, f"fix: repair {repo.id} after verified AI review")
             if diff(workspace):

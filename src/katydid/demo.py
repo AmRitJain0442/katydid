@@ -103,6 +103,7 @@ def initialize(directory: Path) -> Path:
                     "kind": "test",
                     "argv": ["{python}", "verify.py", "{report}"],
                     "timeout_seconds": 30,
+                    "stages": ["pull-request", "merge", "nightly", "release"],
                 }
             ],
         }

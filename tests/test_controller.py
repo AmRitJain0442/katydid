@@ -93,7 +93,7 @@ def make_repository(
                 "kind": "test",
                 "argv": ["{python}", "verify.py"],
                 "timeout_seconds": 10,
-                "stages": ["pull-request"],
+                "stages": ["pull-request", "release"] if release_scripts else ["pull-request"],
             }
         ],
     }

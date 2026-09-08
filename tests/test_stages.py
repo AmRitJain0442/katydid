@@ -233,3 +233,24 @@ def test_duplicate_event_identity_is_rejected(tmp_path):
         policy["events"] = {"github_repository": "firm/service"}
     with pytest.raises(ProfileError, match="identities must be unique"):
         make_controller(tmp_path, policies, DeterministicTestDouble())
+
+
+def test_repaired_candidate_cannot_publish_when_release_stage_fails(tmp_path):
+    repository = staged_repository(tmp_path, "service", healthy=False, release=True)
+    profile_path = repository / "quality.yaml"
+    profile = yaml.safe_load(profile_path.read_text())
+    profile["checks"][-1]["argv"] = ["{python}", "-c", "raise SystemExit(1)"]
+    profile_path.write_text(yaml.safe_dump(profile))
+    git(repository, "commit", "-am", "require a failing release check")
+    base = source_head(str(repository), "main")
+    provider = DeterministicTestDouble()
+    controller = make_controller(tmp_path, [repository_policy(repository, release=True)], provider)
+    controller.enqueue("service")
+    result = controller.work_once()
+    assert provider.roles == ["diagnosis", "repair", "review"]
+    assert result["state"] == "failed"
+    assert result["result"]["verification"]["gate"]["passed"]
+    assert not result["result"]["release_verification"]["gate"]["passed"]
+    assert "candidate_sha" not in result["result"]
+    assert source_head(str(repository), "main") == base
+    assert not (controller.directory / "releases").exists()
