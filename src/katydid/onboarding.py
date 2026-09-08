@@ -963,7 +963,6 @@ def _identifier(value: str) -> str:
 def _existing_profile(
     tree: _GitTree,
     staging: Path,
-    repository_id: str | None,
 ) -> tuple[Profile | None, bytes | None]:
     raw = tree.read("quality.yaml", max_bytes=MAX_PROFILE_BYTES)
     if raw is None:
@@ -971,10 +970,6 @@ def _existing_profile(
     path = staging / "quality.yaml"
     path.write_bytes(raw)
     profile, _digest = load_profile(path)
-    if repository_id is not None and repository_id != profile.repository:
-        raise OnboardingError(
-            "repository_id does not match the existing protected quality.yaml profile"
-        )
     return profile, raw
 
 
@@ -1075,7 +1070,9 @@ def onboard(
 
         branch, commit = _branch_and_commit(repository, base_branch)
         tree = _GitTree(repository, commit)
-        existing, _profile_raw = _existing_profile(tree, staging, repository_id)
+        if repository_id is not None and not _IDENTIFIER.fullmatch(repository_id):
+            raise OnboardingError("repository_id must be a lowercase Katydid identifier")
+        existing, _profile_raw = _existing_profile(tree, staging)
         if existing is None:
             selected_id = repository_id or _identifier(default_name)
             if not _IDENTIFIER.fullmatch(selected_id):
@@ -1088,7 +1085,7 @@ def onboard(
                 staging / "quality.yaml", _profile_data(selected_id, owner, discovery.checks)
             )
         else:
-            selected_id = existing.repository
+            selected_id = repository_id or existing.repository
             discovery = _Discovery(
                 _checks_from_profile(existing),
                 {"quality.yaml"},

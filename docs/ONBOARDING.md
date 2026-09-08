@@ -93,6 +93,9 @@ the profile.
 The review copy is evidence for comparison. The source profile remains authoritative and protected
 from AI edits.
 
+`--repository-id` may give the central registration a different identifier from
+the profile's repository label. The protected profile's bytes and owner remain unchanged.
+
 ## Review and activate
 
 For a generated profile, inspect every argv, working directory, stage, timeout, and listed gap. Copy

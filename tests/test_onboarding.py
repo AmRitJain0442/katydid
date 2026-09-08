@@ -125,7 +125,10 @@ def test_inspects_committed_revision_instead_of_dirty_worktree(tmp_path: Path) -
     assert "python-tests" in result.checks
 
 
-def test_preserves_existing_profile_and_derives_stage_policy(tmp_path: Path) -> None:
+@pytest.mark.parametrize("registration_id", [None, "orders-alias"])
+def test_preserves_existing_profile_and_derives_stage_policy(
+    tmp_path: Path, registration_id: str | None
+) -> None:
     profile = """schema_version: 1
 repository: protected-orders
 owner: existing-team
@@ -149,12 +152,17 @@ checks:
         },
     )
 
-    result = onboard(str(source), tmp_path / "review", owner="ignored-for-existing")
+    result = onboard(
+        str(source),
+        tmp_path / "review",
+        owner="ignored-for-existing",
+        repository_id=registration_id,
+    )
 
-    assert result.repository_id == "protected-orders"
+    assert result.repository_id == (registration_id or "protected-orders")
     assert (tmp_path / "review" / "quality.yaml").read_text(encoding="utf-8") == profile
     fleet, _ = load_fleet(tmp_path / "review" / "fleet.yaml")
-    registered = fleet.repository("protected-orders")
+    registered = fleet.repository(registration_id or "protected-orders")
     assert registered.required_checks == {"core": "test"}
     assert registered.required_checks_by_stage == {"release": {"release-contract": "command"}}
     assert "quality.yaml" in registered.context_paths
