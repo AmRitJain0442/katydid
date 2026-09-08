@@ -37,13 +37,17 @@ def relative_file(value: str) -> str:
 
 class AIConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
-    provider: Literal["codex"] = "codex"
+    provider: Literal["codex", "gemini"] = "codex"
     model: str = "gpt-5.6-sol"
     reasoning: Literal["low", "medium", "high"] = "high"
     command: list[str] | None = None
+    vertex_project: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9-]{4,62}$")
+    vertex_location: str = Field(default="global", pattern=r"^[a-z][a-z0-9-]{0,62}$")
     timeout_seconds: int = Field(default=180, ge=10, le=900)
     max_calls_per_task: int = Field(default=6, ge=2, le=20)
     max_context_bytes: int = Field(default=180000, ge=1000, le=500000)
+    max_output_bytes: int = Field(default=200000, ge=1000, le=500000)
+    max_output_tokens: int = Field(default=8192, ge=64, le=65536)
 
     @field_validator("command")
     @classmethod
@@ -51,6 +55,28 @@ class AIConfig(BaseModel):
         if value is not None and (not value or any(not arg or "\x00" in arg for arg in value)):
             raise ValueError("AI command must be a nonempty executable argument array")
         return value
+
+    @field_validator("model")
+    @classmethod
+    def model_name(cls, value: str) -> str:
+        if not value or len(value) > 200 or "\x00" in value:
+            raise ValueError("AI model must be a bounded nonempty name")
+        return value
+
+    @model_validator(mode="after")
+    def provider_settings(self) -> "AIConfig":
+        if self.provider == "gemini":
+            if "model" not in self.model_fields_set:
+                raise ValueError("Gemini requires an explicit model")
+            if self.vertex_project is None:
+                raise ValueError("Gemini requires vertex_project")
+            if self.command is not None:
+                raise ValueError("Gemini does not support an operator command override")
+            if self.reasoning != "high":
+                raise ValueError("reasoning is a Codex-only setting")
+        elif self.vertex_project is not None or self.vertex_location != "global":
+            raise ValueError("Vertex settings require the Gemini provider")
+        return self
 
 
 class DeliveryConfig(BaseModel):
@@ -60,9 +86,22 @@ class DeliveryConfig(BaseModel):
         default=None, pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
     )
     auto_merge: bool = False
+    github_required_checks: list[str] = Field(default_factory=list, max_length=100)
+
+    @field_validator("github_required_checks")
+    @classmethod
+    def check_names(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value) or any(
+            not name.strip() or len(name) > 200 or any(ord(char) < 32 for char in name)
+            for name in value
+        ):
+            raise ValueError("GitHub required check names must be unique bounded nonempty strings")
+        return value
 
     @model_validator(mode="after")
     def coherent(self) -> "DeliveryConfig":
+        if self.github_required_checks and self.mode != "github":
+            raise ValueError("GitHub required checks require GitHub delivery")
         if self.mode == "github" and not self.github_repository:
             raise ValueError("GitHub delivery needs github_repository")
         if self.mode == "none" and self.auto_merge:

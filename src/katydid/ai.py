@@ -54,6 +54,15 @@ class AIError(RuntimeError):
     pass
 
 
+def create_provider(config: AIConfig, directory: Path) -> AIProvider:
+    """Construct the centrally configured provider without changing Codex defaults."""
+    if config.provider == "codex":
+        return CodexProvider(config, directory)
+    from katydid.gemini import GeminiProvider
+
+    return GeminiProvider(config, directory)
+
+
 def codex_command(config: AIConfig) -> list[str]:
     if config.command:
         return config.command
