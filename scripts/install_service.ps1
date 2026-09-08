@@ -2,6 +2,8 @@ param(
     [Parameter(Mandatory = $true)][string]$Fleet,
     [Parameter(Mandatory = $true)][string]$Logs,
     [string]$CredentialFile,
+    [string]$SecurityManifest,
+    [ValidatePattern('^$|^[a-z][a-z0-9-]{0,63}$')][string]$SweepNamespace,
     [ValidateRange(1, 65535)][int]$Port = 8765,
     [ValidateRange(1, 86400)][int]$Interval = 60,
     [ValidateRange(0, 2147483647)][int]$ScheduleSeconds = 86400,
@@ -28,6 +30,11 @@ if ($CredentialFile) {
     $credentialPath = (Resolve-Path -LiteralPath $CredentialFile).Path
     $argumentList += @('--credential-file', $credentialPath)
 }
+if ($SecurityManifest) {
+    $manifestPath = (Resolve-Path -LiteralPath $SecurityManifest).Path
+    $argumentList += @('--security-manifest', $manifestPath)
+}
+if ($SweepNamespace) { $argumentList += @('--sweep-namespace', $SweepNamespace) }
 foreach ($argument in $argumentList) {
     if ($argument.Contains('"') -or $argument.Contains("`n") -or $argument.Contains("`r")) {
         throw 'Task arguments cannot contain quotes or newlines.'

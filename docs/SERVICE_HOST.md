@@ -24,6 +24,12 @@ out, and sleeping or powering off the host stops monitoring. A dedicated always-
 host is required for unattended availability independent of a developer session.
 The installer refuses to overwrite an existing task.
 
+For configured security scanners, pass `-SecurityManifest` with the prepared host
+`setup.json`. For Docker checks, pass `-SweepNamespace` with the exact centrally
+owned namespace. The launcher sweeps expired owned containers every 30 seconds in
+a separate thread, including while a worker is busy or restarting. It never sweeps
+other namespaces. The entire host must remain running for either loop to operate.
+
 Use the dashboard's Runtime and checks panel or `GET /api/runtime` to inspect the
 worker, selected provider, discovery interval, schedule, and required checks.
 `worker_alive` means the worker thread exists; test outcomes remain in task evidence.

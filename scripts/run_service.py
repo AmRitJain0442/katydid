@@ -3,6 +3,7 @@
 import argparse
 import logging
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -19,6 +20,8 @@ def main() -> int:
     parser.add_argument("--fleet", required=True, type=Path)
     parser.add_argument("--logs", required=True, type=Path)
     parser.add_argument("--credential-file", type=Path)
+    parser.add_argument("--security-manifest", type=Path)
+    parser.add_argument("--sweep-namespace")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--interval", type=int, default=60)
     parser.add_argument("--schedule-seconds", type=int, default=86400)
@@ -26,6 +29,12 @@ def main() -> int:
     if not args.fleet.is_file() or args.interval < 1 or args.schedule_seconds < 0:
         parser.error("A valid fleet file and nonnegative schedule are required")
     environment = dict(os.environ, PYTHONUNBUFFERED="1")
+    if args.security_manifest:
+        if not args.security_manifest.is_file():
+            parser.error("Configured security tool manifest is unavailable")
+        environment["KATYDID_SECURITY_MANIFEST"] = str(args.security_manifest.resolve())
+    if args.sweep_namespace and not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", args.sweep_namespace):
+        parser.error("Invalid owned Docker namespace")
     if args.credential_file:
         if not args.credential_file.is_file():
             parser.error("Configured application credential file is unavailable")
@@ -61,6 +70,46 @@ def main() -> int:
     ]
     stopping = threading.Event()
     child = None
+
+    def sweep_owned_containers() -> None:
+        while not stopping.is_set():
+            try:
+                result = subprocess.run(
+                    [
+                        str(interpreter),
+                        "-m",
+                        "katydid",
+                        "sweep",
+                        "--namespace",
+                        args.sweep_namespace,
+                    ],
+                    cwd=ROOT,
+                    env=environment,
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    timeout=25,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=False,
+                    **options,
+                )
+                if result.returncode:
+                    logger.error(
+                        "Owned container sweep failed with exit code %s", result.returncode
+                    )
+                else:
+                    logger.info("Owned container sweep: %s", result.stdout.strip()[:8000])
+            except (OSError, subprocess.SubprocessError):
+                logger.error("Owned container sweep unavailable")
+            stopping.wait(30)
+
+    sweeper = None
+    if args.sweep_namespace:
+        sweeper = threading.Thread(
+            target=sweep_owned_containers, name="vultron-sweeper", daemon=True
+        )
+        sweeper.start()
 
     def terminate_owned_process() -> None:
         if child is None or child.poll() is not None:
@@ -117,6 +166,7 @@ def main() -> int:
             stopping.wait(delay)
         return 0
     finally:
+        stopping.set()
         terminate_owned_process()
         if child is not None and child.poll() is None:
             try:
@@ -124,6 +174,8 @@ def main() -> int:
             except subprocess.TimeoutExpired:
                 child.kill()
                 child.wait()
+        if sweeper is not None:
+            sweeper.join(timeout=30)
         handler.close()
 
 
