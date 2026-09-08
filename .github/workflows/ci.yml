@@ -55,6 +55,40 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  isolation:
+    name: Container isolation (ubuntu-24.04)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      KATYDID_DOCKER_IMAGE: python@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.10"
+          enable-cache: true
+      - name: Install locked host environment
+        run: uv sync --locked
+      - name: Install the approved immutable test image
+        run: docker pull "$KATYDID_DOCKER_IMAGE"
+      - name: Exercise real containment, cancellation, and orphan recovery
+        run: uv run --locked pytest tests/test_docker_integration.py -v --junitxml=.katydid/docker/junit.xml
+      - name: Run the offline isolated example
+        run: uv run --locked katydid run examples/isolated-python/quality.yaml
+      - name: Preserve isolation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: isolation-evidence-ubuntu-24.04
+          path: |
+            .katydid/docker/
+            examples/isolated-python/.katydid/runs/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
+
   browser:
     name: Browser (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

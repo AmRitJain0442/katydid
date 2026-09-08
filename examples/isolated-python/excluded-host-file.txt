@@ -1,0 +1,1 @@
+This benign host-only fixture proves that unlisted source files do not enter the container.

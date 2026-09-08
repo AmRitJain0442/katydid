@@ -1,0 +1,42 @@
+schema_version: 1
+repository: isolated-python
+owner: runtime-team
+isolation:
+  adapter: docker
+  image: python@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36
+  files: ["app.py", "ops.py", "tests.py"]
+  namespace: katydid
+  cpus: 1.0
+  memory_mb: 512
+  pids_limit: 128
+  tmpfs_mb: 64
+environment:
+  prepare:
+    - id: prepare
+      kind: command
+      argv: ["python", "ops.py", "prepare", "{environment}"]
+      timeout_seconds: 10
+      required: true
+  readiness:
+    check:
+      id: ready
+      kind: command
+      argv: ["python", "ops.py", "ready", "{environment}"]
+      timeout_seconds: 5
+      required: true
+    timeout_seconds: 10
+    interval_seconds: 0.25
+    max_attempts: 4
+  cleanup:
+    - id: cleanup
+      kind: command
+      argv: ["python", "ops.py", "cleanup", "{environment}"]
+      timeout_seconds: 10
+      required: true
+checks:
+  - id: isolated-tests
+    kind: test
+    argv: ["python", "tests.py", "{environment}", "{report}"]
+    timeout_seconds: 20
+    stages: [pull-request, merge, nightly]
+    required: true
