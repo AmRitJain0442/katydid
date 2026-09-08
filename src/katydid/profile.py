@@ -11,7 +11,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from yaml.nodes import MappingNode
 
-Stage = Literal["pull-request", "merge", "nightly"]
+Stage = Literal["pull-request", "merge", "nightly", "release"]
 Identifier = Annotated[str, Field(pattern=r"^[a-z][a-z0-9-]{0,63}$")]
 MAX_PROFILE_BYTES = 1024 * 1024
 ImageDigest = Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9._:/-]*@sha256:[a-f0-9]{64}$")]

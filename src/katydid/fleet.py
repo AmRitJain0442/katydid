@@ -2,7 +2,7 @@
 
 import hashlib
 from pathlib import Path, PureWindowsPath
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -14,6 +14,7 @@ from katydid.profile import (
     Isolation,
     Plan,
     ProfileError,
+    Stage,
     UniqueSafeLoader,
 )
 
@@ -100,6 +101,14 @@ class IsolationPolicy(BaseModel):
         return Isolation.source_files(value)
 
 
+class GitHubEvents(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    github_repository: str = Field(pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+    pull_requests: bool = True
+    pushes: bool = True
+    releases: bool = False
+
+
 class RepositoryConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
     id: Identifier
@@ -110,10 +119,14 @@ class RepositoryConfig(BaseModel):
     editable_paths: list[str] = Field(default_factory=list, max_length=50)
     requirements: str = Field(min_length=1, max_length=20000)
     required_checks: dict[str, Literal["command", "test"]] = Field(min_length=1)
+    required_checks_by_stage: dict[Stage, dict[str, Literal["command", "test"]]] = Field(
+        default_factory=dict
+    )
     repair_attempts: int = Field(default=2, ge=1, le=5)
     delivery: DeliveryConfig = Field(default_factory=DeliveryConfig)
     release: ReleaseConfig | None = None
     isolation_policy: IsolationPolicy | None = None
+    events: GitHubEvents | None = None
 
     @field_validator("profile")
     @classmethod
@@ -150,6 +163,12 @@ class RepositoryConfig(BaseModel):
             raise ValueError("editable_paths must be explicitly present in context_paths")
         if self.release and not self.delivery.auto_merge:
             raise ValueError("Release hooks require automatic merge of the verified candidate")
+        for checks in self.required_checks_by_stage.values():
+            for name, kind in checks.items():
+                if name in self.required_checks and self.required_checks[name] != kind:
+                    raise ValueError("Stage requirements cannot change a mandatory check kind")
+        if self.events and self.events.releases and not self.release:
+            raise ValueError("Release events require centrally configured release hooks")
         return self
 
 
@@ -171,6 +190,11 @@ class FleetConfig(BaseModel):
     def unique_repositories(self) -> "FleetConfig":
         if len({repo.id for repo in self.repositories}) != len(self.repositories):
             raise ValueError("Repository IDs must be unique")
+        identities = [
+            repo.events.github_repository.casefold() for repo in self.repositories if repo.events
+        ]
+        if len(set(identities)) != len(identities):
+            raise ValueError("GitHub event identities must be unique")
         return self
 
     def repository(self, name: str) -> RepositoryConfig:
@@ -199,6 +223,12 @@ def load_fleet(path: Path) -> tuple[FleetConfig, str]:
             if location.startswith("https://github.com/"):
                 if any(char in location for char in "?#@\x00"):
                     raise ValueError("GitHub source must be a credential-free repository URL")
+                if (
+                    repository.events
+                    and location.removeprefix("https://github.com/").removesuffix(".git").casefold()
+                    != repository.events.github_repository.casefold()
+                ):
+                    raise ValueError("GitHub event repository must match its registered source")
             elif "://" in location:
                 raise ValueError("Only local Git paths and HTTPS GitHub repositories are supported")
             else:
@@ -236,7 +266,11 @@ def enforce_policy(repository: RepositoryConfig, plan: Plan) -> None:
                 "Isolation exceeds central image, source, namespace, or resource policy"
             )
     selected = {check.id: check for check in plan.checks}
-    for check_id, kind in repository.required_checks.items():
+    required = {
+        **repository.required_checks,
+        **repository.required_checks_by_stage.get(cast(Stage, plan.stage), {}),
+    }
+    for check_id, kind in required.items():
         check = selected.get(check_id)
         if check is None or not check.required or check.kind != kind:
             raise ProfileError(f"Central policy requires {check_id} as a required {kind} check")

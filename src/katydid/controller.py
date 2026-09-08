@@ -8,13 +8,14 @@ import uuid
 from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from katydid.ai import AIProvider, CodexProvider, Diagnosis, Repair, Response, Review
 from katydid.fleet import RepositoryConfig, enforce_policy, load_fleet
-from katydid.profile import Check, Plan, PlannedCheck, ProfileError, make_plan
+from katydid.profile import Check, Plan, PlannedCheck, ProfileError, Stage, make_plan
 from katydid.runner import Run, _write_json, run_plan
 from katydid.store import Lease, LeaseConflict, StaleLease, Store
+from katydid.tasks import TaskRequest
 from katydid.workspace import (
     GitWorkspace,
     apply_edits,
@@ -27,6 +28,7 @@ from katydid.workspace import (
     publish_local,
     snapshot_files,
     source_head,
+    source_revision,
 )
 
 
@@ -79,31 +81,33 @@ class Controller:
             lambda directory: CodexProvider(self.config.ai, directory)
         )
 
-    def enqueue(self, repository: str, idempotency_key: str | None = None) -> dict[str, Any]:
+    def enqueue(
+        self,
+        repository: str,
+        idempotency_key: str | None = None,
+        *,
+        stage: Stage = "pull-request",
+        mode: Literal["check", "repair", "release"] = "repair",
+    ) -> dict[str, Any]:
         repo = self.config.repository(repository)
         self._unchanged_policy()
         head = source_head(repo.source, repo.base_branch)
-        return self.store.create_task(
-            repository,
-            {
-                "config_sha256": self.digest,
-                "base_sha": head,
-            },
-            idempotency_key,
-        )
+        request = TaskRequest(config_sha256=self.digest, base_sha=head, stage=stage, mode=mode)
+        self._request_policy(repo, request)
+        return self.store.create_task(repository, request.model_dump(), idempotency_key)
 
     def discover(self, *, period: int | None = None) -> list[dict[str, Any]]:
-        """Queue each new registered head once, optionally once per scheduled time bucket."""
+        """Queue changed heads for merge checks, or unchanged heads for nightly checks."""
         tasks = []
         self._unchanged_policy()
         for repo in self.config.repositories:
             head = source_head(repo.source, repo.base_branch)
-            key = f"discover:{repo.id}:{head}:{self.digest}:{period}"
-            tasks.append(
-                self.store.create_task(
-                    repo.id, {"config_sha256": self.digest, "base_sha": head}, key
-                )
+            stage: Stage = "merge" if period is None else "nightly"
+            key = f"discover:{repo.id}:{head}:{self.digest}:{stage}:{period}"
+            request = TaskRequest(
+                config_sha256=self.digest, base_sha=head, stage=stage, mode="check"
             )
+            tasks.append(self.store.create_task(repo.id, request.model_dump(), key))
         return tasks
 
     def _unchanged_policy(self) -> None:
@@ -158,25 +162,61 @@ class Controller:
         thread.start()
         try:
             active()
-            if task["payload"].get("config_sha256") != self.digest:
+            request = TaskRequest.model_validate(task["payload"])
+            if request.config_sha256 != self.digest:
                 raise ControllerError("Queued task belongs to a different central policy")
             repo = self.config.repository(task["repository"])
+            self._request_policy(repo, request)
+
+            def fresh() -> None:
+                active()
+                if source_head(repo.source, repo.base_branch) != request.base_sha:
+                    raise ControllerError("Source head changed after enqueue; submit a fresh task")
+                if request.source_ref and source_revision(repo.source, request.source_ref) != (
+                    request.source_sha
+                ):
+                    raise ControllerError("Source event revision is stale; submit a fresh task")
+
+            fresh()
             state("preparing")
             workspace = prepare_workspace(
                 repo.source,
                 folder / "workspace",
                 repo.base_branch,
                 f"katydid/{repo.id}/{lease.task_id[:12]}-{lease.epoch}",
+                source_ref=request.source_ref,
+                source_sha=request.source_sha,
             )
             evidence.update(
                 workspace=str(workspace.path),
                 base_sha=workspace.base_sha,
                 branch=workspace.branch,
                 config_sha256=self.digest,
+                stage=request.stage,
+                mode=request.mode,
+                source_sha=_git(workspace.path, "rev-parse", "HEAD"),
+                source_ref=request.source_ref or f"refs/heads/{repo.base_branch}",
+                event=request.event,
             )
             if workspace.base_sha != task["payload"].get("base_sha"):
                 raise ControllerError("Source head changed after enqueue; submit a fresh task")
-            plan = make_plan(workspace.path / repo.profile, "pull-request", workspace.path)
+            if request.source_ref and request.source_ref.startswith("refs/pull/"):
+                protected_paths = sorted(
+                    {repo.profile, *set(repo.context_paths).difference(repo.editable_paths)}
+                )
+                if _git(
+                    workspace.path,
+                    "diff",
+                    "--name-only",
+                    request.base_sha,
+                    evidence["source_sha"],
+                    "--",
+                    *protected_paths,
+                ):
+                    raise ControllerError(
+                        "Pull request changed centrally protected checks or profile"
+                    )
+            plan = make_plan(workspace.path / repo.profile, request.stage, workspace.path)
             enforce_policy(repo, plan)
             original = snapshot_files(
                 workspace.path, repo.context_paths, self.config.ai.max_context_bytes
@@ -195,8 +235,26 @@ class Controller:
             if diff(workspace):
                 raise ControllerError("Baseline checks modified tracked files")
             if baseline.gate.passed:
+                fresh()
+                if request.mode == "release":
+                    self._release(
+                        repo,
+                        workspace,
+                        evidence["source_sha"],
+                        folder,
+                        cancelled,
+                        state,
+                        evidence,
+                        before_hook=fresh,
+                    )
+                    state("completed", **evidence, outcome="released", ai_calls=0)
+                    return self.store.get_task(lease.task_id)
                 state("completed", **evidence, outcome="healthy", ai_calls=0)
                 return self.store.get_task(lease.task_id)
+            if request.mode != "repair":
+                raise ControllerError(
+                    "Required stage checks failed; task does not permit AI repair"
+                )
             if not repo.editable_paths:
                 raise ControllerError("Checks failed and central policy grants no editable files")
             provider = self.provider_factory(folder / "ai")
@@ -357,6 +415,21 @@ class Controller:
         return self.store.get_task(lease.task_id)
 
     @staticmethod
+    def _request_policy(repo: RepositoryConfig, request: TaskRequest) -> None:
+        if request.source_ref and request.source_ref.startswith("refs/pull/"):
+            if repo.isolation_policy is None or not repo.isolation_policy.required:
+                raise ControllerError(
+                    "Pull-request events require centrally enforced Docker isolation"
+                )
+        if request.mode == "repair" and request.source_sha not in (None, request.base_sha):
+            raise ControllerError("Repair must start from the registered base revision")
+        if request.mode == "release":
+            if repo.release is None:
+                raise ControllerError("Release task requires centrally configured release hooks")
+            if request.source_sha not in (None, request.base_sha):
+                raise ControllerError("Release must validate the current registered base revision")
+
+    @staticmethod
     def _ensure_environment(run: Run) -> None:
         if run.isolation is not None and (
             not run.isolation["ready"]
@@ -390,6 +463,7 @@ class Controller:
         cancelled: threading.Event,
         state: Callable[..., None],
         evidence: dict[str, Any],
+        before_hook: Callable[[], None] | None = None,
     ) -> None:
         release = repo.release
         assert release is not None
@@ -397,6 +471,8 @@ class Controller:
         release_directory.mkdir(parents=True, exist_ok=True)
 
         def hook(check: Check) -> Run:
+            if before_hook is not None:
+                before_hook()
             cwd = (workspace.path / check.working_directory).resolve()
             if not cwd.is_relative_to(workspace.path) or not cwd.is_dir():
                 raise ProfileError("Release working directory must exist inside the workspace")
@@ -414,7 +490,7 @@ class Controller:
                 1,
                 repo.id,
                 "central-release-policy",
-                "merge",
+                "release",
                 str(workspace.path),
                 str(self.fleet_path),
                 self.digest,

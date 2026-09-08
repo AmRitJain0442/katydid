@@ -267,10 +267,19 @@ def prepare_workspace(
     destination: Path,
     base_branch: str,
     branch: str,
+    *,
+    source_ref: str | None = None,
+    source_sha: str | None = None,
 ) -> GitWorkspace:
     """Clone a repository independently and check out an exact, clean branch."""
     base_branch = _validate_branch(base_branch)
     branch = _validate_branch(branch)
+    if (source_ref is None) != (source_sha is None):
+        raise WorkspaceError("Source ref and SHA must be supplied together")
+    if source_ref is not None:
+        validate_source_ref(source_ref)
+        if source_sha is None or not _SHA.fullmatch(source_sha):
+            raise WorkspaceError("Source revision must be a full commit SHA")
     normalized_source, local_source = _source(source)
     destination = Path(destination)
     if destination.exists() or destination.is_symlink():
@@ -301,8 +310,16 @@ def prepare_workspace(
         _git("config", "--local", "core.hooksPath", str(hooks), cwd=destination)
         remote_ref = f"refs/remotes/origin/{base_branch}^{{commit}}"
         base_sha = _git("rev-parse", "--verify", remote_ref, cwd=destination).stdout.strip()
-        _git("switch", "--force-create", branch, base_sha, cwd=destination)
-        _git("reset", "--hard", base_sha, cwd=destination)
+        checkout_sha = base_sha
+        if source_ref is not None:
+            _git("fetch", "--no-tags", "origin", source_ref, cwd=destination)
+            checkout_sha = _git(
+                "rev-parse", "--verify", "FETCH_HEAD^{commit}", cwd=destination
+            ).stdout.strip()
+            if checkout_sha != source_sha:
+                raise WorkspaceError("Source revision changed before checkout")
+        _git("switch", "--force-create", branch, checkout_sha, cwd=destination)
+        _git("reset", "--hard", checkout_sha, cwd=destination)
         _git("clean", "-ffd", cwd=destination)
         if _git("status", "--porcelain", cwd=destination).stdout:
             raise WorkspaceError("Prepared workspace is unexpectedly dirty")
@@ -459,6 +476,30 @@ def source_head(source: str, branch: str) -> str:
     if len(matches) != 1:
         raise WorkspaceError(f"Source branch could not be resolved exactly: {branch}")
     return matches[0].lower()
+
+
+def validate_source_ref(ref: str) -> None:
+    """Accept only full branch, tag, and GitHub pull-request head references."""
+    if not isinstance(ref, str) or not (
+        ref.startswith(("refs/heads/", "refs/tags/"))
+        or re.fullmatch(r"refs/pull/[1-9][0-9]*/head", ref)
+    ):
+        raise WorkspaceError("Expected a full branch, tag, or pull-request head ref")
+    if _git("check-ref-format", ref, check=False).returncode != 0:
+        raise WorkspaceError("Invalid source ref")
+
+
+def source_revision(source: str, ref: str) -> str:
+    """Resolve one approved ref, peeling annotated tags to their immutable commit."""
+    validate_source_ref(ref)
+    normalized, _local = _source(source)
+    result = _git("ls-remote", "--exit-code", normalized, ref, f"{ref}^{{}}")
+    rows = [line.split("\t", 1) for line in result.stdout.splitlines() if line]
+    found = {name: sha for sha, name in rows if _SHA.fullmatch(sha)}
+    sha = found.get(f"{ref}^{{}}", found.get(ref))
+    if sha is None:
+        raise WorkspaceError("Source ref could not be resolved exactly")
+    return sha.lower()
 
 
 def tree_sha(source: str | Path, commit_sha: str) -> str:
