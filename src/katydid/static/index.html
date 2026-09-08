@@ -1,108 +1,64 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark">
-  <title>Katydid Field Station</title>
-  <link rel="stylesheet" href="/static/app.css">
-  <script src="/static/app.js" defer></script>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark"><meta name="theme-color" content="#09090b">
+  <meta name="description" content="Vultron — autonomous repository testing, AI repair, and verified delivery.">
+  <title>Vultron — Agent workspace</title>
+  <link rel="stylesheet" href="/static/app.css"><script src="/static/app.js" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#task-detail">Skip to task detail</a>
-  <div class="grain" aria-hidden="true"></div>
-  <header class="masthead">
-    <div class="brand-lockup">
-      <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
-      <div>
-        <p class="eyebrow">Local autonomous testing</p>
-        <h1>Katydid <em>Field Station</em></h1>
-      </div>
-    </div>
-    <div class="station-status"><span class="pulse"></span><span>Loopback console</span><b id="clock">--:--:--</b></div>
-  </header>
-
-  <main>
-    <section class="launch-strip" aria-labelledby="launch-heading">
-      <div>
-        <p class="section-number">01 / Dispatch</p>
-        <h2 id="launch-heading">Start an investigation</h2>
-      </div>
-      <form id="create-form">
-        <label for="repository">Registered repository</label>
-        <div class="form-row">
-          <select id="repository" name="repository" required disabled>
-            <option>Loading repositories…</option>
-          </select>
-          <button class="primary" type="submit" disabled>Enqueue task <span>↗</span></button>
-        </div>
-      </form>
-    </section>
-
-    <div class="workspace">
-      <aside class="task-rail" aria-labelledby="tasks-heading">
-        <div class="section-heading">
-          <div>
-            <p class="section-number">02 / Queue</p>
-            <h2 id="tasks-heading">Active ledger</h2>
-          </div>
-          <button id="refresh" class="icon-button" type="button" aria-label="Refresh tasks" title="Refresh tasks">↻</button>
-        </div>
-        <p id="task-count" class="count">— tasks</p>
-        <div id="task-list" class="task-list" aria-live="polite">
-          <div class="empty">Fetching the ledger…</div>
-        </div>
-      </aside>
-
-      <section id="task-detail" class="detail" aria-labelledby="detail-heading" tabindex="-1">
+  <div class="app-shell">
+    <aside class="task-rail" aria-labelledby="tasks-heading">
+      <a class="brand-lockup" href="/" aria-label="Vultron home">
+        <svg class="mark" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M5 8h9l6 15 6-15h9L20 35 5 8Z" fill="currentColor"/><path d="m17 8 3 7 3-7h-6Z" fill="currentColor"/></svg>
+        <span>Vultron<small>Agent workspace</small></span>
+      </a>
+      <section class="launch-strip" aria-labelledby="launch-heading">
+        <h2 id="launch-heading">New investigation</h2>
+        <form id="create-form"><label for="repository">Registered repository</label>
+          <select id="repository" name="repository" required disabled><option>Loading repositories…</option></select>
+          <button class="primary" type="submit" disabled><span aria-hidden="true">＋</span> Enqueue task</button>
+        </form>
+      </section>
+      <div class="section-heading"><h2 id="tasks-heading">Investigations</h2><button id="refresh" class="icon-button" type="button" aria-label="Refresh tasks" title="Refresh tasks">↻</button></div>
+      <p id="task-count" class="count">Loading tasks</p>
+      <div id="task-list" class="task-list" aria-live="polite"><div class="empty">Fetching investigations…</div></div>
+      <div class="rail-footer"><span class="local-dot" aria-hidden="true"></span><span>Local workspace<small>Refreshes every 4 seconds</small></span></div>
+    </aside>
+    <main class="workspace">
+      <header class="masthead">
+        <div class="breadcrumb"><span class="workspace-icon" aria-hidden="true">⌘</span><h1>Vultron</h1><span class="slash">/</span><span>Investigations</span></div>
+        <div class="station-status"><span>LOCAL</span><time id="clock">--:--:--</time></div>
+      </header>
+      <section id="task-detail" class="detail" aria-label="Investigation details" tabindex="-1">
         <div id="detail-empty" class="detail-empty">
-          <span class="specimen" aria-hidden="true">K</span>
-          <p class="section-number">03 / Evidence desk</p>
-          <h2 id="detail-heading">Select a task to inspect its trail.</h2>
-          <p>State changes, steering notes, and captured evidence appear here.</p>
+          <div class="welcome-mark" aria-hidden="true"><svg viewBox="0 0 40 40" fill="none"><path d="M5 8h9l6 15 6-15h9L20 35 5 8Z" fill="currentColor"/><path d="m17 8 3 7 3-7h-6Z" fill="currentColor"/></svg></div>
+          <p class="eyebrow">AUTONOMOUS TESTING / VERIFIED DELIVERY</p>
+          <h2>Your repos. Under control.</h2>
+          <p>Start an investigation or open an existing task.<br>Follow every check, repair, and decision in one workspace.</p>
+          <div class="capabilities" aria-label="Workflow capabilities"><span>01 <b>Test</b></span><span>02 <b>Repair</b></span><span>03 <b>Verify</b></span><span>04 <b>Deliver</b></span></div>
+          <div class="welcome-note"><span aria-hidden="true">↖</span> Select a registered repository to get started</div>
         </div>
         <div id="detail-content" hidden>
-          <div class="detail-head">
-            <div>
-              <p id="detail-repository" class="section-number"></p>
-              <h2 id="detail-id"></h2>
-            </div>
-            <span id="detail-state" class="state-chip"></span>
-          </div>
-
+          <div class="detail-head"><div><p class="eyebrow">INVESTIGATION</p><h2 id="detail-repository"></h2><p id="detail-id" class="detail-id"></p></div><span id="detail-state" class="state-chip"></span></div>
           <dl id="facts" class="facts"></dl>
-
-          <div class="controls" aria-labelledby="controls-heading">
-            <h3 id="controls-heading">Intervene</h3>
-            <div class="control-buttons">
-              <button type="button" data-action="pause">Pause</button>
-              <button type="button" data-action="resume">Resume</button>
-              <button type="button" data-action="cancel" class="danger">Cancel</button>
-            </div>
-            <form id="steer-form">
-              <label for="instruction">Steering instruction</label>
-              <div class="steer-row">
-                <textarea id="instruction" maxlength="4000" rows="2" placeholder="Prioritize the failing integration path…" required></textarea>
-                <button type="submit">Send note</button>
-              </div>
-            </form>
-          </div>
-
           <div class="evidence-grid">
-            <section aria-labelledby="timeline-heading">
-              <div class="subhead"><h3 id="timeline-heading">Event trail</h3><span id="event-count"></span></div>
-              <ol id="timeline" class="timeline"></ol>
-            </section>
-            <section aria-labelledby="record-heading">
-              <div class="subhead"><h3 id="record-heading">Task record</h3><span>JSON</span></div>
-              <pre id="record"></pre>
-            </section>
+            <section class="trajectory" aria-labelledby="timeline-heading"><div class="subhead"><h3 id="timeline-heading"><span aria-hidden="true">⌁</span> Event trajectory</h3><span id="event-count"></span></div><ol id="timeline" class="timeline"></ol></section>
+            <section class="inspector" aria-labelledby="record-heading"><div class="subhead"><h3 id="record-heading">Task record</h3><span>JSON</span></div><pre id="record" tabindex="0" aria-label="Task record JSON"></pre></section>
+          </div>
+          <div class="controls" aria-labelledby="controls-heading">
+            <div class="controls-head"><h3 id="controls-heading">Agent controls</h3><div class="control-buttons"><button type="button" data-action="pause">Pause</button><button type="button" data-action="resume">Resume</button><button type="button" data-action="cancel" class="danger">Cancel</button></div></div>
+            <form id="steer-form"><label for="instruction">Steering instruction</label><textarea id="instruction" maxlength="4000" rows="2" placeholder="Give the agent a constraint or redirect its next step…" required></textarea>
+              <div class="composer-footer"><span>Instructions apply at the next control boundary</span><button type="submit">Send note <span aria-hidden="true">↑</span></button></div>
+            </form>
           </div>
         </div>
       </section>
-    </div>
-  </main>
-
+      <footer class="workspace-footer"><span>VULTRON</span> Evidence behind every outcome.</footer>
+    </main>
+  </div>
   <div id="notice" class="notice" role="status" aria-live="polite"></div>
 </body>
 </html>

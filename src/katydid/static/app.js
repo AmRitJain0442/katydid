@@ -29,6 +29,7 @@ const ui = {
 let tasks = [];
 let selectedId = null;
 let noticeTimer = null;
+let renderedEvents = "";
 
 function safeText(value, fallback = "—") {
   if (value === null || value === undefined || value === "") return fallback;
@@ -103,6 +104,7 @@ function renderTasks() {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `task-card${id === selectedId ? " selected" : ""}`;
+    button.setAttribute("aria-pressed", String(id === selectedId));
     button.addEventListener("click", () => selectTask(id));
     appendText(button, "strong", task.repository, null);
     const meta = document.createElement("span");
@@ -146,6 +148,11 @@ function eventDetail(event) {
 }
 
 function renderEvents(events) {
+  const eventKey = `${selectedId}:${JSON.stringify(events)}`;
+  if (eventKey === renderedEvents) return;
+  const expanded = new Set(Array.from(ui.timeline.querySelectorAll("details[open]"), (node) => node.dataset.event));
+  const scrollTop = ui.timeline.scrollTop;
+  renderedEvents = eventKey;
   ui.timeline.replaceChildren();
   ui.eventCount.textContent = `${events.length} event${events.length === 1 ? "" : "s"}`;
   if (!events.length) {
@@ -162,9 +169,15 @@ function renderEvents(events) {
     const time = appendText(head, "time", formatTimestamp(rawTime), null);
     time.title = safeText(rawTime);
     item.append(head);
-    appendText(item, "p", eventDetail(event), null);
+    const details = document.createElement("details");
+    details.dataset.event = `${selectedId}:${JSON.stringify(event)}`;
+    details.open = expanded.has(details.dataset.event);
+    appendText(details, "summary", "Inspect event", null);
+    appendText(details, "p", eventDetail(event), null);
+    item.append(details);
     ui.timeline.append(item);
   }
+  ui.timeline.scrollTop = scrollTop;
 }
 
 function renderDetail(task, events) {

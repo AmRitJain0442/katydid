@@ -20,7 +20,7 @@ test("dashboard controls durable tasks and renders completed evidence", async ({
   page.on("pageerror", (error) => pageErrors.push(error.message));
 
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Katydid Field Station" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Vultron", exact: true })).toBeVisible();
   await expect(page.locator("#repository")).toBeEnabled();
 
   const first = await enqueueCatalog(page);
@@ -85,5 +85,13 @@ test("dashboard controls durable tasks and renders completed evidence", async ({
   await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeDisabled();
   await expect(page.locator("#instruction")).toBeDisabled();
   await expect(page.getByRole("button", { name: "Send note" })).toBeDisabled();
+  const eventDetails = page.locator("#timeline details").first();
+  await eventDetails.locator("summary").click();
+  await expect(eventDetails).toHaveAttribute("open", "");
+  await page.locator("#refresh").click();
+  await expect(eventDetails).toHaveAttribute("open", "");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("button", { name: "Enqueue task" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(pageErrors).toEqual([]);
 });

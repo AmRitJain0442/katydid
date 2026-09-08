@@ -102,7 +102,7 @@ def test_dashboard_assets_are_local_and_hardened():
     with running_dashboard() as (_, port):
         status, headers, html = request(port, "GET", "/")
         assert status == 200
-        assert b"Katydid Field Station" in html
+        assert b"Vultron" in html
         assert b"https://" not in html
         assert "default-src 'self'" in headers["Content-Security-Policy"]
         assert "Access-Control-Allow-Origin" not in headers
