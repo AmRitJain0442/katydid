@@ -106,6 +106,17 @@ security campaigns. An independent sweeper must remain running and have access t
 
 ## Overall verification and remaining boundaries
 
+The [CI/CD orchestration increment](ORCHESTRATION_PLAN.md) adds explicit task stages and modes,
+exact PR/tag checkout, stage-specific mandatory checks, signed GitHub event ingress, durable
+delivery receipts, and atomic supersession with interruption fencing. Check-only tasks cannot
+invoke AI repair or delivery. Discovery retains centrally allowed repair while separating merge
+and nightly work. Deployable repairs must pass release-stage checks before publication.
+
+The [operating guide](ORCHESTRATION.md) documents reusable hosted checks, two staged fixtures,
+event configuration, profile migration, and the separate webhook/worker/sweeper processes. External
+HTTPS ingress and GitHub branch rules remain deployment configuration; local webhook results do
+not themselves publish GitHub status checks. Automatic onboarding and test authoring remain next.
+
 The complete quality profile runs lint, formatting, strict mypy, and deterministic pytest through Katydid itself. Real Chromium tests additionally exercise both the sample web application and the controller dashboard. Hosted CI runs both categories on Ubuntu 24.04 and Windows Server 2022 and preserves original evidence for seven days.
 
 Live acceptance uses real Codex calls to repair seeded defects without changing protected tests, publishes/merges local Git candidates, verifies deployed application behavior, and recovers from a deliberately broken deployment. A separate real GitHub PR passed hosted Windows/Linux checks, merged into its fixture branch, and released the verified tree. Raw private-host evidence stays ignored; a curated revision/test/review summary is committed.

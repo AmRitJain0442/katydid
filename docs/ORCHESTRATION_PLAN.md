@@ -52,3 +52,30 @@ progressive production rollout, and Phase 2 hunting remain subsequent increments
 7. Held-out AI evaluations and the separately scoped Phase 2 hunting capability.
 
 Each increment needs its own concrete acceptance contract, small commits, and verified integrations.
+
+## Live AI acceptance — 2026-09-08
+
+Task `195f6639174849559adc35be7fd92712` executed the `nightly` stage in repair mode using
+real Codex diagnosis, repair, and independent review calls (`gpt-5.6-sol`, high reasoning).
+The seeded pricing defect failed five assertions at base
+`150477ca93953f45bd03a74dfd326cab2977e917`. Candidate
+`12c102c8dff329c9708a908f8915dded401e6bb7` passed all five protected tests, then passed the
+separate release-stage gate. The controller merged that exact candidate into its local fixture,
+deployed it, and verified health with no human interaction. No GitHub production release was used.
+
+The [curated evidence](evidence/stage-live-acceptance.json) records the revisions, model roles,
+review, and gates. Raw prompts and process logs remain in ignored `.katydid/stage-live` storage.
+
+## Local verification
+
+The self-hosted quality run `8dfff22454914c44b4890b29716a3937` passed lint, formatting, strict
+mypy, and 384 tests in 164.58 seconds (11 expected Docker opt-in and Windows capability skips).
+Subsequent replay/retarget hardening passed all 76 event/store/HTTP regressions and both Windows
+and Linux mypy targets. Five workflow-guard tests execute the actual embedded validation scripts
+against temporary Git checkouts; all eight fixture/stage combinations also passed locally.
+
+The final real Docker suite passed all six tests in 30.23 seconds, including a signed HTTP PR
+delivery through durable ingestion and exact-head controller execution. It verifies that the PR
+head passes inside Docker while the base remains unchanged, no AI/delivery is invoked, and every
+container is removed. The other five tests retain containment, cancellation, timeout, repair, and
+hard-kill recovery coverage. Hosted CI remains the final cross-platform acceptance for the push.

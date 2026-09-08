@@ -102,7 +102,9 @@ The model runs ephemerally in a read-only, empty directory with tools disabled. 
 | `context_paths` | Required list of 1–100 exact safe relative file paths. Existing regular UTF-8 files at these paths are the complete repository source snapshot given to the model; missing listed files are skipped. Globs and directory prefixes are not expanded. |
 | `editable_paths` | Up to 50 exact paths, all also present in `context_paths`. Only these implementation files may be created or replaced by a proposal. An empty list allows testing but makes failed checks nonrepairable. |
 | `requirements` | Required operator-owned text, 1–20,000 characters, supplied as standing requirements to every model role. |
-| `required_checks` | Required nonempty map from check ID to `test` or `command`. Every named check must exist in the repository profile's pull-request plan with the same kind and `required: true`. |
+| `required_checks` | Required nonempty map from check ID to `test` or `command`. Every named check must exist in each executed stage with the same kind and `required: true`. |
+| `required_checks_by_stage` | Optional stage-to-check map adding mandatory checks; cannot change a common required check's kind. |
+| `events` | Optional registered GitHub identity and PR/push/release event switches; see [Orchestration](ORCHESTRATION.md). |
 | `repair_attempts` | `2`; integer from 1 through 5. Each attempt includes a proposal and actual verification; successful evidence then receives an independent model review. |
 | `delivery` | Strict delivery policy described below. |
 | `release` | Optional deploy, health, and rollback commands. It is valid only when delivery has `auto_merge: true`. |
@@ -126,6 +128,12 @@ GitHub mode relies on an already authenticated GitHub CLI and server-side reposi
 Immediately before delivery, the controller requires no remaining tracked diff after the candidate commit and reconstructs the binary diff from the registered base SHA to that commit. It must exactly equal the candidate diff that passed verification and model review. A mismatch stops delivery.
 
 ## Release hooks
+
+Every deployable AI repair now passes the profile's explicit `release` stage and central required
+checks before publication. Missing or failed release evidence blocks publication. A manually
+submitted `--stage release --mode release` task instead validates the current registered base and
+runs the configured hooks without AI edits. Signed release events additionally require the explicit
+`events.releases` opt-in. See [CI/CD orchestration](ORCHESTRATION.md).
 
 `release.deploy`, `release.health`, and `release.rollback` are required `command` checks. Each uses the normal profile check fields: `id`, an argv array, optional `working_directory`, timeout, stages, and `required`. The fleet validator requires command kind and required status. Release execution substitutes `{workspace}`, `{commit}`, and `{release_dir}`; the normal runner also substitutes `{python}` and `{report}`.
 

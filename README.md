@@ -6,6 +6,11 @@ Katydid manages registered Git repositories through their existing test commands
 
 **Implemented:** the end-to-end single-host workflow, including authenticated Codex integration, local and GitHub delivery, scheduled discovery, release hooks, and per-run preparation/readiness/cleanup. Optional Linux Docker execution restricts source files, credentials, networking, and resources; an independent sweeper removes expired owned containers. Default local execution and release hooks remain trusted-host operations. Distributed hosting and autonomous red-team campaigns remain future work.
 
+[CI/CD orchestration](docs/ORCHESTRATION.md) adds explicit PR, merge, nightly, and release stages,
+signed GitHub event ingestion, durable supersession, and reusable hosted checks. Task intent
+separates validation, repair, and release; centrally configured checks and exact revision evidence
+control progression. New repositories still need explicit profiles and central registration.
+
 ## Run it
 
 ```text
@@ -24,12 +29,13 @@ The pinned development environment uses Python **3.12.13** and uv **0.12.10**. T
 
 ```mermaid
 flowchart TD
-    Registry[Central fleet policy + repository profiles] --> Dispatch[CLI / localhost dashboard / scheduled discovery]
+    Registry[Central fleet policy + repository profiles] --> Dispatch[CLI / dashboard / discovery / signed events]
     Dispatch --> Queue[SQLite tasks, events, leases, control epochs]
     Queue --> Clone[Separate Git clone at queued revision]
     Clone --> Baseline[Required checks + fresh JUnit evidence]
     Baseline -->|healthy| Complete[Completed with evidence]
-    Baseline -->|failure| Diagnose[Codex structured diagnosis]
+    Baseline -->|failure and repair permitted| Diagnose[Codex structured diagnosis]
+    Baseline -->|failure in check or release task| Failed[Failed with evidence]
     Diagnose --> Repair[Codex proposed edits]
     Repair --> Policy[Allowed files + protected tests + bounded attempts]
     Policy --> Verify[Run original checks again]

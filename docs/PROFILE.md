@@ -33,10 +33,15 @@ The profile's parent is the repository root unless `--root` selects another dire
 | `argv` | Nonempty list of strings; no implicit shell or environment expansion |
 | `working_directory` | Default `.`; existing directory inside the root |
 | `timeout_seconds` | Integer 1–3600; default 300 |
-| `stages` | Nonempty unique list of `pull-request`, `merge`, `nightly`; default `pull-request` |
+| `stages` | Nonempty unique list of `pull-request`, `merge`, `nightly`, `release`; default `pull-request` |
 | `required` | Boolean; default true. Advisory results remain visible |
 
 Every selected stage must include at least one required check. Excluded checks appear in the plan with the stage-selection reason. Plans contain the profile SHA-256 and resolved working directories and are deterministic for identical inputs.
+
+Stages are explicit: adding a release configuration does not automatically include PR checks in the
+release stage. List every applicable stage on shared checks. Fleet `required_checks` apply to all
+executed stages; `required_checks_by_stage` adds requirements for specific stages. See the
+[orchestration guide](ORCHESTRATION.md) for event, task, and migration examples.
 
 ```text
 python scripts/dev.py cli validate path/to/quality.yaml

@@ -2,7 +2,10 @@
 
 Katydid is a single-host, evidence-driven test and repair service for repositories that an operator has explicitly registered. After one central onboarding decision, it can discover changes, run protected checks, obtain real model diagnosis and repair proposals, verify and independently review a candidate, deliver it under policy, and run configured release and recovery commands without routine human approval. Humans remain able to inspect, pause, cancel, steer, and resume active tasks.
 
-It is not a red-team system, a container service, or a security boundary for hostile code. Repository checks and release hooks run as local subprocesses with the service account's permissions. Separate clones protect the source working tree and Git object storage from accidental coupling; they do not isolate untrusted programs. Register only trusted repositories and commands on a private operator-controlled host.
+Profiles can select the documented [Docker isolation boundary](ISOLATION.md); profiles without it
+and all release hooks use trusted-host subprocesses. Signed PR event execution requires central
+Docker enforcement and rejects changes to protected checks and the profile. Docker shares its host
+kernel; red-team campaigns remain deferred. Operate the controller on a private trusted host.
 
 ## Implemented system
 
@@ -50,7 +53,7 @@ The repository pins and tests this environment:
 | uv | 0.12.10, pinned by `.uv-version`, `pyproject.toml`, and the development helper |
 | Git | Required for every fleet repository and workspace |
 | Codex CLI | Required for repairable failures; 0.153.4 is recorded in `.codex-version`, and the accepted live probe used it with `gpt-5.6-sol` and high reasoning |
-| GitHub CLI (`gh`) | Required only for repositories using `delivery.mode: github` |
+| GitHub CLI (`gh`) | Required for GitHub delivery and current PR-state queries during webhook ingestion |
 | Node.js | Optional; needed when the discovered Codex executable is an npm `.cmd`, `.bat`, or `.ps1` launcher |
 | Browser | Optional for the local dashboard and the initial ChatGPT sign-in flow |
 
@@ -112,13 +115,19 @@ python scripts/dev.py cli serve --fleet path/to/fleet.yaml --watch --interval 60
 
 Open the printed loopback URL, normally `http://127.0.0.1:8765`. The server rejects external bindings and has no user authentication; do not publish it through a proxy, tunnel, shared container port, or nonlocal interface. See [dashboard boundaries](DASHBOARD.md).
 
-`--watch` checks each registered base-branch head every `--interval` seconds and enqueues a head only once for the current policy digest. To retest an unchanged head in time buckets, add a positive schedule:
+`--watch` checks each registered base-branch head every `--interval` seconds and enqueues the
+`merge` stage once per head and policy digest. Discovery retains automatic repair where central
+`editable_paths` grants it; repositories without editable paths receive validation-only tasks.
+To additionally run the `nightly` stage on unchanged heads in time buckets, add a positive schedule:
 
 ```text
 python scripts/dev.py cli serve --fleet path/to/fleet.yaml --watch --interval 60 --schedule-seconds 3600
 ```
 
-`--schedule-seconds` has an effect only with `--watch`. The period becomes part of the idempotency key, so one task is created per repository, head, policy digest, and schedule bucket. With no watch flag, the service processes only tasks submitted through the CLI or dashboard.
+`--schedule-seconds` requires `--watch`. Nightly tasks have independent keys and do not replace
+merge discovery. With no watch flag, the worker processes tasks submitted through CLI, dashboard,
+or the separate [signed webhook listener](ORCHESTRATION.md). Existing profiles must explicitly
+include merge/nightly checks when those discovery lanes are enabled.
 
 For a headless worker without the dashboard, use:
 
