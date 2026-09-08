@@ -2,7 +2,9 @@
 
 `scripts/run_service.py` starts the installed platform with branch watching and
 daily scheduled checks, writes rotating local logs (five files, up to 5 MB each),
-and propagates the worker exit status to its OS supervisor. Model credentials
+and restarts an unexpectedly exited worker after a bounded delay. Ten consecutive
+startup failures stop the launcher with a nonzero status for its OS supervisor;
+one minute of continuous operation resets that startup-failure counter. Model credentials
 stay on the host. Log files are operational evidence and should remain private.
 
 ## Windows

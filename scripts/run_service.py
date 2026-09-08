@@ -6,6 +6,8 @@ import os
 import signal
 import subprocess
 import sys
+import threading
+import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -40,52 +42,83 @@ def main() -> int:
     interpreter = Path(sys.executable)
     if interpreter.name.lower() == "pythonw.exe":
         interpreter = interpreter.with_name("python.exe")
-    child = subprocess.Popen(
-        [
-            str(interpreter),
-            "-m",
-            "katydid",
-            "serve",
-            "--fleet",
-            str(args.fleet.resolve()),
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(args.port),
-            "--watch",
-            "--interval",
-            str(args.interval),
-            "--schedule-seconds",
-            str(args.schedule_seconds),
-        ],
-        cwd=ROOT,
-        env=environment,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        **options,
-    )
+    argv = [
+        str(interpreter),
+        "-m",
+        "katydid",
+        "serve",
+        "--fleet",
+        str(args.fleet.resolve()),
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(args.port),
+        "--watch",
+        "--interval",
+        str(args.interval),
+        "--schedule-seconds",
+        str(args.schedule_seconds),
+    ]
+    stopping = threading.Event()
+    child = None
+
+    def terminate_owned_process() -> None:
+        if child is None or child.poll() is not None:
+            return
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(child.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=15,
+                check=False,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        else:
+            child.terminate()
 
     def stop(_signal: int, _frame: object) -> None:
-        if child.poll() is None:
-            child.terminate()
+        stopping.set()
+        terminate_owned_process()
 
     for name in (signal.SIGINT, signal.SIGTERM):
         signal.signal(name, stop)
-    logger.info("Service process started")
+    failures = 0
     try:
-        assert child.stdout is not None
-        while line := child.stdout.readline(8192):
-            logger.info("%s", line.rstrip()[:8000])
-        result = child.wait()
-        logger.info("Service process stopped with exit code %s", result)
-        return result
+        while not stopping.is_set():
+            started = time.monotonic()
+            child = subprocess.Popen(
+                argv,
+                cwd=ROOT,
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                **options,
+            )
+            logger.info("Service process started")
+            assert child.stdout is not None
+            while line := child.stdout.readline(8192):
+                logger.info("%s", line.rstrip()[:8000])
+            result = child.wait()
+            child.stdout.close()
+            logger.info("Service process stopped with exit code %s", result)
+            if stopping.is_set():
+                return 0
+            failures = 1 if time.monotonic() - started >= 60 else failures + 1
+            if failures >= 10:
+                logger.error("Repeated startup failures; host supervisor intervention required")
+                return 1
+            delay = min(5 * failures, 60)
+            logger.info("Restarting worker after %s seconds", delay)
+            stopping.wait(delay)
+        return 0
     finally:
-        if child.poll() is None:
-            child.terminate()
+        terminate_owned_process()
+        if child is not None and child.poll() is None:
             try:
                 child.wait(timeout=15)
             except subprocess.TimeoutExpired:
