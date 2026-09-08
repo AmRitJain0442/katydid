@@ -129,6 +129,10 @@ Immediately before delivery, the controller requires no remaining tracked diff a
 
 ## Release hooks
 
+For Gemini configuration and exact required GitHub check names, see the
+[Gemini and GitHub guide](GEMINI.md). `delivery.github_required_checks` is central policy: every
+named job must finish successfully before merge, including when GitHub has not yet created the jobs.
+
 Every deployable AI repair now passes the profile's explicit `release` stage and central required
 checks before publication. Missing or failed release evidence blocks publication. A manually
 submitted `--stage release --mode release` task instead validates the current registered base and

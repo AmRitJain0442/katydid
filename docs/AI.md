@@ -1,5 +1,8 @@
 # Codex model provider
 
+This page covers the default backend. See [Gemini through Vertex AI](GEMINI.md) for the alternate
+provider, its credential boundary, usage receipts, and provider-aware diagnostics.
+
 Katydid uses the real Codex CLI as a narrow model backend for diagnosis, repair proposals, and independent review. It does not contain a synthetic success response or silently fall back to a fake provider. A missing executable, missing authentication, backend error, invalid structured response, timeout, cancellation, or exhausted budget fails the task.
 
 ## Local authentication
