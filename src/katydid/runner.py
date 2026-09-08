@@ -144,6 +144,9 @@ def _execute(
     if not cwd.is_relative_to(Path(plan.root)) or not cwd.is_dir():
         return CheckResult(check.id, Status.ERROR, "Working directory changed or escaped the root")
     environment = os.environ.copy()
+    # Model authentication belongs to the provider subprocess, not repository checks/hooks.
+    for name in ("GOOGLE_APPLICATION_CREDENTIALS", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        environment.pop(name, None)
     if environment_directory is not None:
         environment["KATYDID_ENVIRONMENT_DIR"] = str(environment_directory)
     else:

@@ -10,7 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Literal
 
-from katydid.ai import AIProvider, CodexProvider, Diagnosis, Repair, Response, Review
+from katydid.ai import AIProvider, Diagnosis, Repair, Response, Review, create_provider
 from katydid.fleet import RepositoryConfig, enforce_policy, load_fleet
 from katydid.profile import Check, Plan, PlannedCheck, ProfileError, Stage, make_plan
 from katydid.runner import Run, _write_json, run_plan
@@ -78,7 +78,7 @@ class Controller:
         self.directory.mkdir(parents=True, exist_ok=True)
         self.store = Store(self.directory / "state.db")
         self.provider_factory = provider_factory or (
-            lambda directory: CodexProvider(self.config.ai, directory)
+            lambda directory: create_provider(self.config.ai, directory)
         )
 
     def enqueue(
@@ -393,7 +393,11 @@ class Controller:
                     evidence["pull_request"] = pr
                     if repo.delivery.auto_merge:
                         evidence["github_checks"] = wait_pull_request(
-                            github, pr["number"], sha, cancelled
+                            github,
+                            pr["number"],
+                            sha,
+                            cancelled,
+                            required_checks=tuple(repo.delivery.github_required_checks),
                         )
                         active()
                         if source_head(repo.source, repo.base_branch) != workspace.base_sha:

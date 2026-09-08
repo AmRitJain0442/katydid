@@ -7,6 +7,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -76,11 +77,21 @@ def doctor(fleet: Path) -> int:
     config, _digest = load_fleet(fleet)
     checks: dict[str, Any] = {"python": sys.version.split()[0]}
     passed = True
-    for name, argv in (
-        ("git", ["git", "--version"]),
-        ("codex", [*codex_command(config.ai), "--version"]),
-        ("ai_auth", [*codex_command(config.ai), "login", "status"]),
-    ):
+    commands = [("git", ["git", "--version"])]
+    if config.ai.provider == "codex":
+        commands.extend(
+            [
+                ("codex", [*codex_command(config.ai), "--version"]),
+                ("ai_auth", [*codex_command(config.ai), "login", "status"]),
+            ]
+        )
+    else:
+        from katydid.gemini import gemini_doctor
+
+        with tempfile.TemporaryDirectory(prefix="katydid-gemini-doctor-") as directory:
+            checks["ai_auth"] = gemini_doctor(config.ai, Path(directory))
+        passed &= checks["ai_auth"]["available"] is True
+    for name, argv in commands:
         try:
             result = subprocess.run(argv, capture_output=True, text=True, timeout=20, check=False)
             checks[name] = {
