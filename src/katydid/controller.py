@@ -97,18 +97,28 @@ class Controller:
         return self.store.create_task(repository, request.model_dump(), idempotency_key)
 
     def discover(self, *, period: int | None = None) -> list[dict[str, Any]]:
-        """Queue changed heads for merge checks, or unchanged heads for nightly checks."""
+        """Queue one changed-head task, or an unchanged-head nightly task."""
         tasks = []
         self._unchanged_policy()
         for repo in self.config.repositories:
             head = source_head(repo.source, repo.base_branch)
-            stage: Stage = "merge" if period is None else "nightly"
+            auto_release = period is None and repo.release is not None and repo.release.auto_deploy
+            stage: Stage = (
+                "release"
+                if auto_release and not repo.editable_paths
+                else "merge"
+                if period is None
+                else "nightly"
+            )
+            mode: Literal["check", "repair", "release"] = (
+                "release" if stage == "release" else "repair" if repo.editable_paths else "check"
+            )
             key = f"discover:{repo.id}:{head}:{self.digest}:{stage}:{period}"
             request = TaskRequest(
                 config_sha256=self.digest,
                 base_sha=head,
                 stage=stage,
-                mode="repair" if repo.editable_paths else "check",
+                mode=mode,
             )
             tasks.append(self.store.create_task(repo.id, request.model_dump(), key))
         return tasks
@@ -170,6 +180,14 @@ class Controller:
                 raise ControllerError("Queued task belongs to a different central policy")
             repo = self.config.repository(task["repository"])
             self._request_policy(repo, request)
+            watched_auto_deploy = bool(
+                repo.release is not None
+                and repo.release.auto_deploy
+                and request.stage == "merge"
+                and request.mode == "repair"
+                and task["idempotency_key"]
+                == (f"discover:{repo.id}:{request.base_sha}:{self.digest}:merge:None")
+            )
 
             def fresh() -> None:
                 active()
@@ -240,6 +258,34 @@ class Controller:
             if baseline.gate.passed:
                 fresh()
                 if request.mode == "release":
+                    self._release(
+                        repo,
+                        evidence["source_sha"],
+                        folder,
+                        cancelled,
+                        state,
+                        evidence,
+                        lease=lease,
+                        before_hook=fresh,
+                    )
+                    state("completed", **evidence, outcome="released", ai_calls=0)
+                    return self.store.get_task(lease.task_id)
+                if watched_auto_deploy:
+                    release_plan = make_plan(
+                        workspace.path / repo.profile, "release", workspace.path
+                    )
+                    enforce_policy(repo, release_plan)
+                    state("verifying", stage="release")
+                    release_verified = run_plan(release_plan, folder / "runs", cancelled)
+                    active()
+                    evidence["release_verification"] = _evidence(release_verified)
+                    self._ensure_environment(release_verified)
+                    self._assert_files(workspace, repo, protected)
+                    if not release_verified.gate.passed or diff(workspace):
+                        raise ControllerError(
+                            "Release-stage base verification failed before automatic deployment"
+                        )
+                    fresh()
                     self._release(
                         repo,
                         evidence["source_sha"],

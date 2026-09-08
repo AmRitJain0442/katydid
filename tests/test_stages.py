@@ -42,6 +42,25 @@ def staged_repository(root, name, *, healthy=True, release=False):
     return repository
 
 
+def automatic_release_policy(repository, *, editable=True):
+    (repository / "health.py").write_text(
+        """import sys
+from pathlib import Path
+
+value = (Path(sys.argv[1]) / "deployed.txt").read_text(encoding="utf-8")
+raise SystemExit(0 if value.startswith("new:") else 1)
+""",
+        encoding="utf-8",
+    )
+    git(repository, "add", "health.py")
+    git(repository, "commit", "-m", "configure passing release health")
+    policy = repository_policy(repository, release=True)
+    policy["release"]["auto_deploy"] = True
+    if not editable:
+        policy["editable_paths"] = []
+    return policy
+
+
 @pytest.mark.parametrize("stage", STAGES)
 def test_two_repositories_run_only_requested_stage_without_ai(tmp_path, stage):
     repositories = [staged_repository(tmp_path, name) for name in ("service", "library")]
@@ -80,6 +99,125 @@ def test_merge_and_nightly_discovery_are_independent_and_idempotent(tmp_path):
     assert controller.discover(period=8)[0]["id"] != nightly["id"]
     for _ in range(3):
         assert controller.work_once()["state"] == "completed"
+    assert provider.roles == []
+
+
+def test_watched_healthy_base_auto_deploys_after_release_stage_without_ai(tmp_path):
+    repository = staged_repository(tmp_path, "service", release=True)
+    provider = DeterministicTestDouble()
+    controller = make_controller(tmp_path, [automatic_release_policy(repository)], provider)
+
+    task = controller.discover()[0]
+    assert task["payload"]["stage"] == "merge"
+    assert task["payload"]["mode"] == "repair"
+    assert controller.discover()[0]["id"] == task["id"]
+    result = controller.work_once()
+
+    assert result["state"] == "completed", result
+    assert result["result"]["outcome"] == "released"
+    assert result["result"]["ai_calls"] == 0
+    assert result["result"]["release_verification"]["gate"]["passed"] is True
+    assert provider.roles == []
+    deployed = controller.directory / "releases" / "service" / "deployed.txt"
+    assert deployed.read_text() == "new:" + source_head(str(repository), "main")
+    assert controller.discover()[0]["id"] == task["id"]
+
+
+def test_auto_deploy_default_off_stays_healthy_without_release(tmp_path):
+    repository = staged_repository(tmp_path, "service", release=True)
+    provider = DeterministicTestDouble()
+    controller = make_controller(tmp_path, [repository_policy(repository, release=True)], provider)
+
+    task = controller.discover()[0]
+    result = controller.work_once()
+
+    assert result["id"] == task["id"]
+    assert result["result"]["outcome"] == "healthy"
+    assert not (controller.directory / "releases").exists()
+    assert provider.roles == []
+
+
+def test_manual_check_mode_is_not_promoted_by_auto_deploy(tmp_path):
+    repository = staged_repository(tmp_path, "service", release=True)
+    provider = DeterministicTestDouble()
+    controller = make_controller(tmp_path, [automatic_release_policy(repository)], provider)
+
+    controller.enqueue("service", stage="merge", mode="check")
+    result = controller.work_once()
+
+    assert result["result"]["outcome"] == "healthy"
+    assert not (controller.directory / "releases").exists()
+    assert provider.roles == []
+
+
+def test_nightly_discovery_never_auto_deploys(tmp_path):
+    repository = staged_repository(tmp_path, "service", release=True)
+    provider = DeterministicTestDouble()
+    controller = make_controller(tmp_path, [automatic_release_policy(repository)], provider)
+
+    task = controller.discover(period=12)[0]
+    result = controller.work_once()
+
+    assert task["payload"]["stage"] == "nightly"
+    assert task["payload"]["mode"] == "repair"
+    assert result["result"]["outcome"] == "healthy"
+    assert not (controller.directory / "releases").exists()
+    assert provider.roles == []
+
+
+def test_noneditable_watched_repository_uses_release_mode(tmp_path):
+    repository = staged_repository(tmp_path, "service", release=True)
+    provider = DeterministicTestDouble()
+    controller = make_controller(
+        tmp_path, [automatic_release_policy(repository, editable=False)], provider
+    )
+
+    task = controller.discover()[0]
+    result = controller.work_once()
+
+    assert task["payload"]["stage"] == "release"
+    assert task["payload"]["mode"] == "release"
+    assert result["state"] == "completed", result
+    assert result["result"]["outcome"] == "released"
+    assert provider.roles == []
+
+
+def test_broken_watched_head_retains_repair_then_release(tmp_path):
+    repository = staged_repository(tmp_path, "service", healthy=False, release=True)
+    provider = DeterministicTestDouble()
+    controller = make_controller(tmp_path, [automatic_release_policy(repository)], provider)
+
+    task = controller.discover()[0]
+    result = controller.work_once()
+
+    assert task["payload"]["stage"] == "merge"
+    assert task["payload"]["mode"] == "repair"
+    assert result["state"] == "completed", result
+    assert result["result"]["outcome"] == "repaired"
+    assert result["result"]["release_verification"]["gate"]["passed"] is True
+    assert provider.roles == ["diagnosis", "repair", "review"]
+
+
+def test_auto_deploy_requires_passing_release_stage_gate(tmp_path):
+    repository = staged_repository(tmp_path, "service", release=True)
+    profile_path = repository / "quality.yaml"
+    profile = yaml.safe_load(profile_path.read_text())
+    release_check = next(check for check in profile["checks"] if check["id"] == "release")
+    release_check["argv"] = ["{python}", "-c", "raise SystemExit(1)"]
+    profile_path.write_text(yaml.safe_dump(profile), encoding="utf-8")
+    git(repository, "add", "quality.yaml")
+    git(repository, "commit", "-m", "require failing release gate")
+    provider = DeterministicTestDouble()
+    controller = make_controller(tmp_path, [automatic_release_policy(repository)], provider)
+
+    controller.discover()
+    result = controller.work_once()
+
+    assert result["state"] == "failed"
+    assert result["result"]["baseline"]["gate"]["passed"] is True
+    assert result["result"]["release_verification"]["gate"]["passed"] is False
+    assert "Release-stage base verification failed" in result["result"]["error"]
+    assert not (controller.directory / "releases").exists()
     assert provider.roles == []
 
 

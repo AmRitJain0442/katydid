@@ -87,3 +87,26 @@ def test_same_normalized_git_source_cannot_be_registered_under_multiple_ids(tmp_
 
     with pytest.raises(ProfileError, match="source can only be registered once"):
         load(tmp_path, value)
+
+
+def test_release_auto_deploy_is_strict_and_defaults_off(tmp_path):
+    value = data()
+    value["repositories"][0]["delivery"] = {"mode": "local", "auto_merge": True}
+    value["repositories"][0]["release"] = {
+        "deploy": {"id": "deploy", "kind": "command", "argv": ["python", "hook.py"]},
+        "health": {"id": "health", "kind": "command", "argv": ["python", "hook.py"]},
+        "rollback": {
+            "id": "rollback",
+            "kind": "command",
+            "argv": ["python", "hook.py"],
+        },
+    }
+
+    config, _ = load(tmp_path, value)
+    assert config.repositories[0].release.auto_deploy is False
+    value["repositories"][0]["release"]["auto_deploy"] = True
+    config, _ = load(tmp_path, value)
+    assert config.repositories[0].release.auto_deploy is True
+    value["repositories"][0]["release"]["auto_deploy"] = "true"
+    with pytest.raises(ProfileError):
+        load(tmp_path, value)

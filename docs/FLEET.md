@@ -44,6 +44,7 @@ repositories:
       mode: local
       auto_merge: true
     release:
+      auto_deploy: false
       deploy:
         id: deploy
         kind: command
@@ -109,7 +110,7 @@ the controller applies allowed edits and executes checks. See [Codex](AI.md) and
 | `events` | Optional registered GitHub identity and PR/push/release event switches; see [Orchestration](ORCHESTRATION.md). |
 | `repair_attempts` | `2`; integer from 1 through 5. Each attempt includes a proposal and actual verification; successful evidence then receives an independent model review. |
 | `delivery` | Strict delivery policy described below. |
-| `release` | Optional deploy, health, and rollback commands. It is valid only when delivery has `auto_merge: true`. |
+| `release` | Optional deploy, health, and rollback commands plus the `auto_deploy` discovery opt-in. It is valid only when delivery has `auto_merge: true`. |
 
 Safe file paths are forward-slash relative paths without empty, `.`, `..`, `.git`, `.env...`, Windows drive/root, backslash, NUL, or alternate-stream components. Symlinks and reparse points are rejected during workspace access. The whole edit batch is validated before any file is replaced and is capped at 200,000 UTF-8 bytes.
 
@@ -140,6 +141,21 @@ checks before publication. Missing or failed release evidence blocks publication
 submitted `--stage release --mode release` task instead validates the current registered base and
 runs the configured hooks without AI edits. Signed release events additionally require the explicit
 `events.releases` opt-in. See [CI/CD orchestration](ORCHESTRATION.md).
+
+`release.auto_deploy` defaults to `false` and accepts only a boolean. When true, ordinary watched
+branch discovery may deploy a healthy new base commit after its mandatory release-stage profile
+checks pass. An editable repository keeps one merge/repair task: a failing merge gate follows the
+existing bounded repair path, while a healthy merge gate runs a fresh release-stage plan and then
+the release hooks without an AI call. A repository with no editable paths receives a release/release
+task directly. The discovered task key includes the exact head and policy digest, so repeated polls
+return the same task rather than redeploying the same decision.
+
+This opt-in applies only to ordinary changed-head discovery. Nightly discovery remains a nightly
+check or repair, and manually submitted check-mode tasks remain check-only. Pull-request and push
+webhook tasks are not promoted to deployment. A failed release-stage gate stops before deploy, and a
+failed watched application gate cannot reach hooks unless the normal repair, verification, review,
+merge, and release-stage gates all succeed. Changing the source head or central policy creates a new
+decision; retrying a terminal release for the same head requires an explicit operator task.
 
 `release.deploy`, `release.health`, and `release.rollback` are required `command` checks. Each uses the normal profile check fields: `id`, an argv array, optional `working_directory`, timeout, stages, and `required`. The fleet validator requires command kind and required status. Release execution substitutes `{workspace}`, `{commit}`, and `{release_dir}`; the normal runner also substitutes `{python}` and `{report}`.
 
