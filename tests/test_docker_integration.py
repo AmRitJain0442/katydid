@@ -4,6 +4,7 @@ import json
 import os
 import re
 import runpy
+import stat
 import subprocess
 import sys
 import threading
@@ -144,7 +145,10 @@ def test_real_fixture_has_fresh_junit_lifecycle_and_no_host_credentials(
 
     environment = run.directory / "environment" / "data"
     assert {path.name for path in environment.iterdir()} == {"cleanup.json"}
-    cleanup = json.loads((environment / "cleanup.json").read_text(encoding="utf-8"))
+    cleanup_path = environment / "cleanup.json"
+    if os.name != "nt":
+        assert cleanup_path.stat().st_mode & stat.S_IROTH
+    cleanup = json.loads(cleanup_path.read_text(encoding="utf-8"))
     assert cleanup == {"cleanup_complete": True, "run_id": run.id}
     report = run.directory / "000-isolated-tests" / "output" / "junit.xml"
     assert report.is_file()

@@ -49,6 +49,7 @@ def write_atomic(path: Path, value: dict[str, object]) -> None:
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
+        temporary.chmod(0o644)
         os.replace(temporary, path)
     finally:
         if temporary is not None:

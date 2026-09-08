@@ -67,3 +67,9 @@ live process and an available Docker daemon; it cannot remove resources while th
 
 Raw run evidence stays in ignored `.katydid` directories. An independent sweeper must be operated
 as a separate live process; these tests do not install an operating-system startup service.
+
+The first hosted run exercised all 327 Linux core tests successfully and exposed two portability
+issues: mypy needed a recognized platform guard around the Windows-only launch flag, and the
+example's atomic nonsecret cleanup record needed explicit `0644` permissions so the host's different
+UID could read it. Both were corrected; Windows/Linux type checks and all five local real Docker
+tests passed again, with POSIX evidence readability now asserted by the integration suite.
