@@ -256,8 +256,8 @@ def test_generates_real_unittest_junit_adapter_check(tmp_path: Path) -> None:
     ("test_source", "expected_code", "expected_status", "expected_tests"),
     [
         (
-            "import unittest\nclass Example(unittest.TestCase):\n"
-            "    def test_ok(self): self.assertEqual(2 + 2, 4)\n",
+            "import unittest\nimport application\nclass Example(unittest.TestCase):\n"
+            "    def test_ok(self): self.assertEqual(application.VALUE, 4)\n",
             0,
             Status.PASSED,
             1,
@@ -282,6 +282,7 @@ def test_unittest_adapter_records_actual_result_events(
     project = tmp_path / "adapter-project"
     tests = project / "tests"
     tests.mkdir(parents=True)
+    (project / "application.py").write_text("VALUE = 4\n", encoding="utf-8")
     (tests / "test_sample.py").write_text(test_source, encoding="utf-8")
     report = tmp_path / "junit.xml"
 

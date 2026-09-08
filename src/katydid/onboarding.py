@@ -244,7 +244,11 @@ def unittest_junit(report: Path, start_directory: str = "tests") -> int:
     """Discover unittest cases and emit actual result callbacks as bounded JUnit."""
     started = time.monotonic()
     result = _JUnitResult()
+    original_path = sys.path[:]
     try:
+        # The adapter is already imported through -I; tests can now import their
+        # application from the explicitly selected project working directory.
+        sys.path.insert(0, str(Path.cwd()))
         suite = unittest.defaultTestLoader.discover(start_directory)
         suite.run(result)
     except BaseException as exc:
@@ -257,6 +261,8 @@ def unittest_junit(report: Path, start_directory: str = "tests") -> int:
                 "".join(traceback.format_exception(exc))[:16_384],
             )
         )
+    finally:
+        sys.path[:] = original_path
     _write_unittest_junit(report, result, time.monotonic() - started)
     failed = any(case.outcome in {"failure", "error"} for case in result.cases)
     return 0 if result.cases and not failed else 1
