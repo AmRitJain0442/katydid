@@ -43,7 +43,7 @@ team's languages and threat model.
 | Periodic discovery | Rechecks unchanged heads daily |
 | Gemini | Vertex AI gemini-2.5-flash, six-call task budget, separate diagnosis/repair/review requests, host-owned credentials |
 | GitHub delivery | Verified PR publication and configured automatic merge after required hosted checks |
-| Automatic deployment | Watched healthy commits run the release-stage profile before exact-revision deployment; failing editable commits retain the bounded AI repair path |
+| Automatic deployment | Watched healthy commits run the release-stage profile and wait for required GitHub checks on the exact SHA before deployment; failing editable commits retain the bounded AI repair path |
 | Container sweeper | Runs independently every 30 seconds for the owned vultron-orders namespace |
 | Vultron-Worker-SecurityDB | Refreshes vulnerability data daily; atomic generation publication, bounded operational logs |
 | Vultron-Orders-Recovery | Checks the established application every minute and at logon; recovers verified crashed processes |
@@ -81,7 +81,8 @@ flowchart TD
     Gate -->|healthy| Evidence[Durable task evidence]
     Gate -->|healthy watched head and auto-deploy enabled| Release
     Merge --> Release[Release-stage validation]
-    Release --> Deploy[Immutable release artifact]
+    Release --> Hosted[Required GitHub checks on exact commit]
+    Hosted --> Deploy[Immutable release artifact]
     Deploy --> Health[Exact-revision application health]
     Health -->|healthy| Active[Established service]
     Health -->|failed| Rollback[Restore previous immutable artifact]
@@ -115,6 +116,20 @@ flowchart TD
 - After the verified owned application process was deliberately terminated,
   the scheduled recovery task restored the same artifact and data. Its recorded
   task result was zero and its recovery log reported `recovered: true`.
+- Watched task `630cfe77347c4a09a983e2607b0ce3fe` subsequently completed an
+  automatic release of `50cee56e249f7e88caef54ea7e99fc8d31059b00`. All eight merge
+  checks, all eight release checks, deployment, and exact-revision health passed.
+  It used zero model calls and updated the durable last-success pointer.
+- Platform run `75f5153006c348febbfbdac07c6d2c6c` passed lint, formatting, types,
+  and the complete local suite: 492 passed, 11 platform-specific or opt-in skips.
+  Dashboard Playwright run `c76e6086308246f4a48656fb42e3c158` also passed.
+- Remote onboarding inspected the private GitHub application's exact `50cee56`
+  revision, preserved its eight-check profile, and generated a validation-only
+  registration using the `orders` fleet alias without changing source files.
+- The exact-commit GitHub gate independently verified `Core (ubuntu-24.04)`,
+  `Core (windows-2022)`, `Browser`, and `Vultron pipeline` on `50cee56` before
+  permitting release hooks. Missing, pending, failed, ambiguous, or wrong-revision
+  evidence cannot be accepted as a passing required check.
 
 The two failed Docker tasks preceding the Windows path fix remain visible.
 They are historical failures, not erased or reclassified as successful runs.
