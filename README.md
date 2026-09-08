@@ -24,6 +24,22 @@ control progression. New repositories still need explicit profiles and central r
 
 ## Run it
 
+Start by inspecting your actual repository:
+
+```text
+python scripts/dev.py sync
+python scripts/dev.py cli onboard https://github.com/OWNER/REPOSITORY.git C:/vultron-config/repository --owner your-team
+```
+
+The [onboarding guide](docs/ONBOARDING.md) explains the generated profile, fleet
+registration, and any missing setup or test reporters. Register the project's
+requirements, permitted edit paths, provider, and delivery policy once; the
+worker then operates under that standing authority. Use the
+[supervised host](docs/SERVICE_HOST.md), [security checks](docs/SECURITY_CHECKS.md),
+and [managed deployment](docs/MANAGED_RELEASE.md) guides to provision the host.
+
+The optional local acceptance exercise is separate:
+
 ```text
 python scripts/dev.py sync
 python scripts/dev.py cli demo init .katydid/demo
@@ -45,12 +61,12 @@ flowchart TD
     Queue --> Clone[Separate Git clone at queued revision]
     Clone --> Baseline[Required checks + fresh JUnit evidence]
     Baseline -->|healthy| Complete[Completed with evidence]
-    Baseline -->|failure and repair permitted| Diagnose[Codex structured diagnosis]
+    Baseline -->|failure and repair permitted| Diagnose[Gemini or Codex diagnosis]
     Baseline -->|failure in check or release task| Failed[Failed with evidence]
-    Diagnose --> Repair[Codex proposed edits]
+    Diagnose --> Repair[AI proposed edits]
     Repair --> Policy[Allowed files + protected tests + bounded attempts]
     Policy --> Verify[Run original checks again]
-    Verify --> Review[Fresh Codex review]
+    Verify --> Review[Fresh AI review]
     Review -->|approved + passing| Commit[Commit verified candidate]
     Review -->|reject within budget| Repair
     Commit --> Delivery[Local branch / GitHub PR + hosted checks]
@@ -74,6 +90,11 @@ Central registration grants standing authority once. Ordinary tasks proceed with
 |---|---|
 | [Runbook](docs/RUNBOOK.md) | Complete setup, commands, operation, troubleshooting, and recovery |
 | [Fleet configuration](docs/FLEET.md) | Central policy, repository registration, AI budgets, delivery, and release hooks |
+| [Repository onboarding](docs/ONBOARDING.md) | Committed repository discovery, structured test detection, and registration bundles |
+| [Security checks](docs/SECURITY_CHECKS.md) | Pinned Semgrep, Trivy, and Gitleaks with real findings and mandatory evidence |
+| [Supervised host](docs/SERVICE_HOST.md) | Worker restart, scheduling, database refresh, and owned container sweeping |
+| [Managed releases](docs/MANAGED_RELEASE.md) | Immutable application versions, persistent data, rollback, and automatic recovery |
+| [Operating acceptance](docs/OPERATING_ACCEPTANCE.md) | Enabled live capabilities, verified runs, and deployment boundaries |
 | [Development environment](docs/DEVELOPMENT.md) | Exact environment and contributor checks |
 | [Profiles](docs/PROFILE.md) / [Runs](docs/RUNS.md) | Framework-neutral command adapters, JUnit, artifacts, and cancellation |
 | [AI integration](docs/AI.md) | Real provider, authentication, structured outputs, and limits |
