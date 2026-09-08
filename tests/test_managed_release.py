@@ -3,10 +3,13 @@ import socket
 import sqlite3
 import subprocess
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
-from katydid.deployment import _stop_owned
+import pytest
+
+from katydid.deployment import LOG_FILE_BYTES, LOG_FILE_COUNT, _process_identity, _stop_owned
 
 
 def git(repository: Path, *args: str) -> str:
@@ -29,7 +32,7 @@ def free_port() -> int:
         return int(listener.getsockname()[1])
 
 
-def application(version: str) -> str:
+def application(version: str, *, log_bytes: int = 0) -> str:
     return f"""import argparse
 import json
 import os
@@ -44,6 +47,13 @@ parser.add_argument("--port", required=True, type=int)
 parser.add_argument("--db", required=True)
 args = parser.parse_args()
 revision = os.environ["KATYDID_RELEASE_COMMIT"]
+
+for descriptor, byte in ((1, b"O"), (2, b"E")):
+    remaining = {log_bytes}
+    while remaining:
+        chunk = byte * min(65536, remaining)
+        os.write(descriptor, chunk)
+        remaining -= len(chunk)
 
 with sqlite3.connect(args.db) as connection:
     connection.execute("CREATE TABLE IF NOT EXISTS orders (value TEXT NOT NULL)")
@@ -156,7 +166,10 @@ def request(url: str, *, method: str = "GET") -> tuple[dict, str | None]:
         return value, response.headers.get("X-Katydid-Revision")
 
 
-def test_real_revision_cutover_and_rollback_preserve_host_database(tmp_path: Path) -> None:
+@pytest.mark.parametrize("_iteration", range(3))
+def test_real_revision_cutover_and_rollback_preserve_host_database(
+    tmp_path: Path, _iteration: int
+) -> None:
     repository = tmp_path / "service"
     repository.mkdir()
     git(repository, "init", "--initial-branch=main")
@@ -317,3 +330,104 @@ def test_deploy_rejects_dirty_checkout_before_creating_state(tmp_path: Path) -> 
     assert result.returncode == 1
     assert "including untracked and ignored files" in result.stderr
     assert not state.exists()
+
+
+def test_supervisor_rotates_both_streams_across_crash_recovery(tmp_path: Path) -> None:
+    repository = tmp_path / "noisy-service"
+    repository.mkdir()
+    git(repository, "init", "--initial-branch=main")
+    git(repository, "config", "user.name", "Katydid Test")
+    git(repository, "config", "user.email", "katydid@example.invalid")
+    emitted = LOG_FILE_BYTES * LOG_FILE_COUNT + 123
+    (repository / "app.py").write_text(application("noisy", log_bytes=emitted), encoding="utf-8")
+    git(repository, "add", "app.py")
+    git(repository, "commit", "-m", "noisy service")
+    commit = git(repository, "rev-parse", "HEAD")
+
+    port = free_port()
+    state = tmp_path / "managed-state"
+    spec = tmp_path / "deployment.json"
+    spec.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "argv": [
+                    "{python}",
+                    "app.py",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    str(port),
+                    "--db",
+                    "{data}/orders.db",
+                ],
+                "working_directory": ".",
+                "environment": {},
+                "health": {
+                    "url": f"http://127.0.0.1:{port}/health",
+                    "expected_headers": {"X-Katydid-Revision": "{commit}"},
+                    "timeout_seconds": 15,
+                    "interval_seconds": 0.05,
+                    "request_timeout_seconds": 1,
+                },
+                "stop_timeout_seconds": 5,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    started = False
+    try:
+        invoke("deploy", repository, commit, state, spec)
+        started = True
+        registry_path = state / "managed-release.json"
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        stdout = Path(registry["active"]["stdout"])
+        stderr = Path(registry["active"]["stderr"])
+
+        def assert_bounded(path: Path, expected: bytes) -> None:
+            generations = [path, *(path.with_name(f"{path.name}.{i}") for i in (1, 2))]
+            assert all(item.exists() for item in generations)
+            assert all(item.stat().st_size <= LOG_FILE_BYTES for item in generations)
+            assert LOG_FILE_BYTES * 2 < sum(item.stat().st_size for item in generations)
+            assert sum(item.stat().st_size for item in generations) <= (
+                LOG_FILE_BYTES * LOG_FILE_COUNT
+            )
+            assert all(set(item.read_bytes()) <= {expected[0]} for item in generations)
+
+        assert stdout.name == f"{commit}.stdout.log"
+        assert stderr.name == f"{commit}.stderr.log"
+        assert_bounded(stdout, b"O")
+        assert_bounded(stderr, b"E")
+
+        _stop_owned(registry["active"], 5)
+        assert json.loads(invoke_recover(state, spec).stdout)["recovered"] is True
+        assert_bounded(stdout, b"O")
+        assert_bounded(stderr, b"E")
+        assert {path.name for path in (state / "logs").iterdir()} == {
+            stdout.name,
+            f"{stdout.name}.1",
+            f"{stdout.name}.2",
+            stderr.name,
+            f"{stderr.name}.1",
+            f"{stderr.name}.2",
+        }
+    finally:
+        if started:
+            invoke("stop", repository, commit, state, spec, check=False)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows process identity regression")
+def test_windows_process_identity_handles_exit_query_races() -> None:
+    for _attempt in range(40):
+        process = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(0.02)"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        deadline = time.monotonic() + 2
+        while _process_identity(process.pid) is not None and time.monotonic() < deadline:
+            pass
+        process.wait(timeout=2)
+        assert _process_identity(process.pid) is None

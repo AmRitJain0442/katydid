@@ -123,6 +123,8 @@ A recorded host boot identity lets recovery discard stale pre-reboot process rec
 
 `STATE/data` is never copied into a release. Application stdout and stderr are written under `STATE/logs`; manifests, release trees, launch handshakes, and the active-process registry remain under `STATE` as host-owned operational records.
 
+Each commit uses stable `<commit>.stdout.log` and `<commit>.stderr.log` paths, including after crash recovery. Each stream rotates through the current file, `.1`, and `.2`, with a 5 MiB limit per file. Repeated crashes of one active commit therefore use at most 15 MiB per stream. The registry continues to point to the current unnumbered file. Retention of logs and immutable artifacts for older commits remains a host-operator policy.
+
 For an existing SQLite service, stop the old writer and use the SQLite backup API to create `STATE/data/orders.db`. Do not copy a live database file. Take a separate backup before the first managed deployment. Later deployment and rollback operations reuse that database; schema changes must remain backward-compatible with the rollback release.
 
 ## Ownership and recovery

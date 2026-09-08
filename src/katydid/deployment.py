@@ -18,13 +18,14 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterator, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import Any, NoReturn, cast
+from typing import Any, BinaryIO, NoReturn, cast
 from urllib.parse import urlsplit
 
 SCHEMA_VERSION = 1
@@ -33,6 +34,10 @@ MAX_SPEC_BYTES = 64 * 1024
 MAX_HEALTH_BYTES = 64 * 1024
 GIT_TIMEOUT_SECONDS = 60
 START_TIMEOUT_SECONDS = 15.0
+LOG_FILE_BYTES = 5 * 1024 * 1024
+LOG_FILE_COUNT = 3
+LOG_READ_BYTES = 64 * 1024
+LOG_DRAIN_TIMEOUT_SECONDS = 2.0
 _SHA = re.compile(r"[0-9a-f]{40,64}\Z")
 _ENVIRONMENT_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 _PLACEHOLDER = re.compile(r"\{[^{}]+\}")
@@ -97,6 +102,86 @@ def _atomic_json(path: Path, value: Any) -> None:
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
+
+
+class _RotatingLog:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.stream: BinaryIO | None = None
+        self.size = 0
+
+    def __enter__(self) -> _RotatingLog:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        for generation in range(LOG_FILE_COUNT):
+            existing = (
+                self.path
+                if generation == 0
+                else self.path.with_name(f"{self.path.name}.{generation}")
+            )
+            if existing.exists() and existing.stat().st_size > LOG_FILE_BYTES:
+                with existing.open("r+b", buffering=0) as stream:
+                    stream.seek(-LOG_FILE_BYTES, os.SEEK_END)
+                    tail = stream.read(LOG_FILE_BYTES)
+                    stream.seek(0)
+                    stream.write(tail)
+                    stream.truncate()
+        self.size = self.path.stat().st_size if self.path.exists() else 0
+        if self.size >= LOG_FILE_BYTES:
+            self._rotate()
+        else:
+            self.stream = self.path.open("ab", buffering=0)
+        return self
+
+    def __exit__(self, *_error: object) -> None:
+        if self.stream is not None:
+            self.stream.close()
+            self.stream = None
+
+    def _rotate(self) -> None:
+        if self.stream is not None:
+            self.stream.close()
+            self.stream = None
+        oldest = self.path.with_name(f"{self.path.name}.{LOG_FILE_COUNT - 1}")
+        oldest.unlink(missing_ok=True)
+        for generation in range(LOG_FILE_COUNT - 2, 0, -1):
+            source = self.path.with_name(f"{self.path.name}.{generation}")
+            if source.exists():
+                source.replace(self.path.with_name(f"{self.path.name}.{generation + 1}"))
+        if self.path.exists():
+            self.path.replace(self.path.with_name(f"{self.path.name}.1"))
+        self.stream = self.path.open("wb", buffering=0)
+        self.size = 0
+
+    def write(self, value: bytes) -> None:
+        pending = memoryview(value)
+        while pending:
+            if self.size >= LOG_FILE_BYTES:
+                self._rotate()
+            length = min(len(pending), LOG_FILE_BYTES - self.size)
+            if self.stream is None:
+                _fail("Rotating log is not open")
+            written = self.stream.write(pending[:length])
+            if written is None or written <= 0:
+                _fail("Rotating log write made no progress")
+            self.size += written
+            pending = pending[written:]
+
+
+def _drain_rotating(pipe: BinaryIO, path: Path) -> None:
+    try:
+        with _RotatingLog(path) as output:
+            while chunk := pipe.read(LOG_READ_BYTES):
+                output.write(chunk)
+    except (OSError, DeploymentError):
+        # Continue draining after a logging failure so the application cannot block
+        # forever on a full stdout or stderr pipe.
+        try:
+            while pipe.read(LOG_READ_BYTES):
+                pass
+        except (OSError, ValueError):
+            pass
+    finally:
+        pipe.close()
 
 
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -582,8 +667,8 @@ def _windows_identity(pid: int) -> dict[str, Any] | None:
             return None
         _fail(f"Cannot inspect process {pid}: Windows error {error}")
 
-    def exited_during_query() -> bool:
-        wait_result = wait_for_process(handle, 0)
+    def exited_during_query(timeout_ms: int = 0) -> bool:
+        wait_result = wait_for_process(handle, timeout_ms)
         if wait_result == 0:  # WAIT_OBJECT_0
             return True
         if wait_result == 258:  # WAIT_TIMEOUT
@@ -602,15 +687,21 @@ def _windows_identity(pid: int) -> dict[str, Any] | None:
             ctypes.byref(kernel),
             ctypes.byref(user),
         ):
+            error = ctypes.get_last_error()
+            if error in {5, 31} and exited_during_query(250):
+                return None
             if exited_during_query():
                 return None
-            _fail(f"Cannot read process creation time: Windows error {ctypes.get_last_error()}")
+            _fail(f"Cannot read process creation time: Windows error {error}")
         size = wintypes.DWORD(32768)
         buffer = ctypes.create_unicode_buffer(size.value)
         if not query_image(handle, 0, buffer, ctypes.byref(size)):
+            error = ctypes.get_last_error()
+            if error in {5, 31} and exited_during_query(250):
+                return None
             if exited_during_query():
                 return None
-            _fail(f"Cannot read process executable: Windows error {ctypes.get_last_error()}")
+            _fail(f"Cannot read process executable: Windows error {error}")
         birth = (created.dwHighDateTime << 32) | created.dwLowDateTime
         executable = os.path.normcase(os.path.realpath(buffer.value))
         return {"pid": pid, "birth": str(birth), "executable": executable}
@@ -902,8 +993,8 @@ def _start(
     launches.mkdir(parents=True, exist_ok=True)
     request = launches / f"{launch_id}.request.json"
     ready = launches / f"{launch_id}.ready.json"
-    stdout = state / "logs" / f"{commit}-{launch_id}.stdout.log"
-    stderr = state / "logs" / f"{commit}-{launch_id}.stderr.log"
+    stdout = state / "logs" / f"{commit}.stdout.log"
+    stderr = state / "logs" / f"{commit}.stderr.log"
     stdout.parent.mkdir(parents=True, exist_ok=True)
     _atomic_json(
         request,
@@ -1352,17 +1443,40 @@ def _supervise(request_value: str, ready_value: str) -> int:
         )
     else:
         child_options["start_new_session"] = True
-    with stdout.open("ab") as out, stderr.open("ab") as err:
-        process = subprocess.Popen(
-            argv,
-            cwd=cwd,
-            env={str(name): str(value) for name, value in environment.items()},
-            stdin=subprocess.DEVNULL,
-            stdout=out,
-            stderr=err,
-            shell=False,
-            **child_options,
-        )
+    process = subprocess.Popen(
+        argv,
+        cwd=cwd,
+        env={str(name): str(value) for name, value in environment.items()},
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=0,
+        shell=False,
+        **child_options,
+    )
+    if process.stdout is None or process.stderr is None:
+        process.kill()
+        _fail("Cannot create managed application log pipes")
+    drains = [
+        threading.Thread(
+            target=_drain_rotating,
+            args=(process.stdout, stdout),
+            name="katydid-stdout",
+            daemon=True,
+        ),
+        threading.Thread(
+            target=_drain_rotating,
+            args=(process.stderr, stderr),
+            name="katydid-stderr",
+            daemon=True,
+        ),
+    ]
+    started_drains: list[threading.Thread] = []
+    child_identity: dict[str, Any] | None = None
+    try:
+        for drain in drains:
+            drain.start()
+            started_drains.append(drain)
         child_identity = _process_identity(process.pid)
         supervisor_identity = _process_identity(os.getpid())
         if child_identity is None or supervisor_identity is None:
@@ -1399,7 +1513,20 @@ def _supervise(request_value: str, ready_value: str) -> int:
             _stop_child(process, child_identity)
         else:
             process.wait(timeout=5)
-    listener.close()
+    finally:
+        if process.poll() is None:
+            try:
+                if child_identity is not None:
+                    _stop_child(process, child_identity)
+                else:
+                    process.kill()
+                    process.wait(timeout=5)
+            except (DeploymentError, OSError, subprocess.SubprocessError):
+                process.kill()
+        deadline = time.monotonic() + LOG_DRAIN_TIMEOUT_SECONDS
+        for drain in started_drains:
+            drain.join(timeout=max(0.0, deadline - time.monotonic()))
+        listener.close()
     return 0
 
 
