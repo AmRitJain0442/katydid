@@ -272,6 +272,7 @@ def handle(args: argparse.Namespace) -> int:
                         "delivery": repo.delivery.mode,
                         "auto_merge": repo.delivery.auto_merge,
                         "release_configured": repo.release is not None,
+                        "auto_deploy": bool(repo.release and repo.release.auto_deploy),
                         "isolation_required": repo.isolation_policy is not None
                         and repo.isolation_policy.required,
                     }

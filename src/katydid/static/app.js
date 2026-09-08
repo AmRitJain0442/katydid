@@ -52,6 +52,7 @@ async function loadRuntime() {
       appendText(panel, "strong", repository.id);
       appendText(panel, "p", Object.keys(repository.required_checks || {}).join(" · "));
       appendText(panel, "p", `${repository.delivery} delivery · ${repository.auto_merge ? "automatic merge" : "merge disabled"}`);
+      appendText(panel, "p", repository.auto_deploy ? "Automatic deployment enabled" : repository.release_configured ? "Release hooks configured" : "Deployment not configured");
     }
   } catch {
     renderedRuntime = "";
