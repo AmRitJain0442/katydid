@@ -17,7 +17,9 @@ MAX_RECONCILE_ATTEMPTS = 3
 _DELIVERY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,127}$")
 _EVENT = re.compile(r"^[a-z][a-z_]{0,63}$")
 _SHA = re.compile(r"^[0-9a-f]{40}$")
-_PULL_ACTIONS = frozenset({"opened", "reopened", "synchronize", "ready_for_review", "closed"})
+_PULL_ACTIONS = frozenset(
+    {"opened", "reopened", "synchronize", "ready_for_review", "edited", "closed"}
+)
 
 
 class EventError(RuntimeError):
@@ -164,31 +166,66 @@ class GitHubIngress:
         return matches[0], github_repository
 
     def _duplicate(
-        self, delivery_id: str, body_sha256: str, repository: Any
+        self, delivery_id: str, body_sha256: str, replay_key: str, repository: Any
     ) -> dict[str, Any] | None:
         try:
             receipt = self.controller.store.get_event("github", delivery_id)
         except EventNotFound:
             return None
-        if receipt["body_sha256"] != body_sha256 or receipt["repository"] != repository.id:
+        if (
+            receipt["body_sha256"] != body_sha256
+            or receipt["repository"] != repository.id
+            or (receipt.get("replay_key") is not None and receipt.get("replay_key") != replay_key)
+        ):
             raise EventConflict("GitHub delivery ID was reused with different content or scope")
+        return self._receipt_status({**receipt, "duplicate": True})
+
+    @staticmethod
+    def _receipt_status(receipt: dict[str, Any]) -> dict[str, Any]:
         if receipt["task_id"] is not None:
             status = "enqueued"
         elif receipt["group"] is None or str(receipt["group"]).startswith("github:release:"):
             status = "ignored"
         else:
             status = "cancelled"
-        return {**receipt, "duplicate": True, "status": status}
+        return {**receipt, "status": status}
+
+    def _replay(
+        self,
+        delivery_id: str,
+        body_sha256: str,
+        replay_key: str,
+        repository: Any,
+    ) -> dict[str, Any] | None:
+        try:
+            self.controller.store.get_replay("github", repository.id, replay_key)
+        except EventNotFound:
+            return None
+        receipt = self.controller.store.ingest_event(
+            "github",
+            delivery_id,
+            body_sha256,
+            repository.id,
+            None,
+            replay_key=replay_key,
+        )
+        return self._receipt_status(receipt)
 
     def _ignored(
         self,
         delivery_id: str,
         body_sha256: str,
+        replay_key: str,
         repository: Any,
         reason: str,
     ) -> dict[str, Any]:
         receipt = self.controller.store.ingest_event(
-            "github", delivery_id, body_sha256, repository.id, None
+            "github",
+            delivery_id,
+            body_sha256,
+            repository.id,
+            None,
+            replay_key=replay_key,
         )
         return {**receipt, "status": "ignored", "reason": reason}
 
@@ -215,6 +252,7 @@ class GitHubIngress:
         self,
         delivery_id: str,
         body_sha256: str,
+        replay_key: str,
         repository: Any,
         group: str,
         build_payload: Callable[[], dict[str, Any] | None],
@@ -234,14 +272,14 @@ class GitHubIngress:
                     payload,
                     group=group,
                     expected_group_version=version,
+                    replay_key=replay_key,
                 )
             except EventConflict:
-                duplicate = self._duplicate(delivery_id, body_sha256, repository)
+                duplicate = self._duplicate(delivery_id, body_sha256, replay_key, repository)
                 if duplicate is not None:
                     return duplicate
                 continue
-            status = "enqueued" if payload is not None else "cancelled"
-            return {**receipt, "status": status}
+            return self._receipt_status(receipt)
         raise EventRace("GitHub state changed repeatedly during event ingestion")
 
     def ingest(self, event: str, delivery_id: str, body: bytes) -> dict[str, Any]:
@@ -252,20 +290,47 @@ class GitHubIngress:
         payload = _json_object(body)
         repository, github_repository = self._repository(payload)
         body_sha256 = hashlib.sha256(body).hexdigest()
-        duplicate = self._duplicate(delivery_id, body_sha256, repository)
+        replay_key = hashlib.sha256(event.encode("utf-8") + b"\0" + body).hexdigest()
+        duplicate = self._duplicate(delivery_id, body_sha256, replay_key, repository)
         if duplicate is not None:
             return duplicate
+        replay = self._replay(delivery_id, body_sha256, replay_key, repository)
+        if replay is not None:
+            return replay
 
         if event == "pull_request":
             return self._pull_request(
-                payload, delivery_id, body_sha256, repository, github_repository
+                payload,
+                delivery_id,
+                body_sha256,
+                replay_key,
+                repository,
+                github_repository,
             )
         if event == "push":
-            return self._push(payload, delivery_id, body_sha256, repository, github_repository)
+            return self._push(
+                payload,
+                delivery_id,
+                body_sha256,
+                replay_key,
+                repository,
+                github_repository,
+            )
         if event == "release":
-            return self._release(payload, delivery_id, body_sha256, repository, github_repository)
+            return self._release(
+                payload,
+                delivery_id,
+                body_sha256,
+                replay_key,
+                repository,
+                github_repository,
+            )
         return self._ignored(
-            delivery_id, body_sha256, repository, f"unsupported GitHub event: {event}"
+            delivery_id,
+            body_sha256,
+            replay_key,
+            repository,
+            f"unsupported GitHub event: {event}",
         )
 
     def _pull_request(
@@ -273,6 +338,7 @@ class GitHubIngress:
         payload: dict[str, Any],
         delivery_id: str,
         body_sha256: str,
+        replay_key: str,
         repository: Any,
         github_repository: str,
     ) -> dict[str, Any]:
@@ -281,18 +347,24 @@ class GitHubIngress:
         webhook_pull = _object(payload, "pull_request")
         if _integer(webhook_pull, "number") != number:
             raise InvalidEvent("Pull request numbers in the payload do not match")
+        _sha(_object(webhook_pull, "head"), "sha")
         webhook_base = _object(webhook_pull, "base")
-        if _string(webhook_base, "ref", 255) != repository.base_branch:
-            return self._ignored(
-                delivery_id, body_sha256, repository, "pull request targets another base branch"
-            )
+        _string(webhook_base, "ref", 255)
         if not repository.events.pull_requests:
             return self._ignored(
-                delivery_id, body_sha256, repository, "pull request events are disabled"
+                delivery_id,
+                body_sha256,
+                replay_key,
+                repository,
+                "pull request events are disabled",
             )
         if action not in _PULL_ACTIONS:
             return self._ignored(
-                delivery_id, body_sha256, repository, f"unsupported pull request action: {action}"
+                delivery_id,
+                body_sha256,
+                replay_key,
+                repository,
+                f"unsupported pull request action: {action}",
             )
         isolation = repository.isolation_policy
         if isolation is None or not isolation.required:
@@ -307,10 +379,9 @@ class GitHubIngress:
             state = _string(pull, "state", 16)
             base = _object(pull, "base")
             base_repo = _string(_object(base, "repo"), "full_name", 200)
-            if (
-                base_repo.casefold() != github_repository.casefold()
-                or _string(base, "ref", 255) != repository.base_branch
-            ):
+            if base_repo.casefold() != github_repository.casefold():
+                raise InvalidEvent("GitHub returned a pull request from another repository")
+            if _string(base, "ref", 255) != repository.base_branch:
                 return None
             if state == "closed":
                 return None
@@ -342,13 +413,14 @@ class GitHubIngress:
                 ),
             }
 
-        return self._store_grouped(delivery_id, body_sha256, repository, group, current)
+        return self._store_grouped(delivery_id, body_sha256, replay_key, repository, group, current)
 
     def _push(
         self,
         payload: dict[str, Any],
         delivery_id: str,
         body_sha256: str,
+        replay_key: str,
         repository: Any,
         github_repository: str,
     ) -> dict[str, Any]:
@@ -359,12 +431,18 @@ class GitHubIngress:
         base_ref = f"refs/heads/{repository.base_branch}"
         if source_ref != base_ref:
             return self._ignored(
-                delivery_id, body_sha256, repository, "push targets another branch"
+                delivery_id,
+                body_sha256,
+                replay_key,
+                repository,
+                "push targets another branch",
             )
         if deleted:
-            return self._ignored(delivery_id, body_sha256, repository, "deleted push")
+            return self._ignored(delivery_id, body_sha256, replay_key, repository, "deleted push")
         if not repository.events.pushes:
-            return self._ignored(delivery_id, body_sha256, repository, "push events are disabled")
+            return self._ignored(
+                delivery_id, body_sha256, replay_key, repository, "push events are disabled"
+            )
         source_sha = _sha(payload, "after")
         group = _group("push", repository.base_branch)
 
@@ -383,24 +461,33 @@ class GitHubIngress:
                 ),
             }
 
-        return self._store_grouped(delivery_id, body_sha256, repository, group, current)
+        return self._store_grouped(delivery_id, body_sha256, replay_key, repository, group, current)
 
     def _release(
         self,
         payload: dict[str, Any],
         delivery_id: str,
         body_sha256: str,
+        replay_key: str,
         repository: Any,
         github_repository: str,
     ) -> dict[str, Any]:
         action = _string(payload, "action", 64)
         if action != "published":
             return self._ignored(
-                delivery_id, body_sha256, repository, f"unsupported release action: {action}"
+                delivery_id,
+                body_sha256,
+                replay_key,
+                repository,
+                f"unsupported release action: {action}",
             )
         if not repository.events.releases or repository.release is None:
             return self._ignored(
-                delivery_id, body_sha256, repository, "release events are disabled"
+                delivery_id,
+                body_sha256,
+                replay_key,
+                repository,
+                "release events are disabled",
             )
         release = _object(payload, "release")
         tag = _string(release, "tag_name", 255)
@@ -427,8 +514,10 @@ class GitHubIngress:
                 ),
             }
 
-        receipt = self._store_grouped(delivery_id, body_sha256, repository, group, current)
-        if receipt["status"] == "cancelled":
+        receipt = self._store_grouped(
+            delivery_id, body_sha256, replay_key, repository, group, current
+        )
+        if receipt["task_id"] is None:
             receipt["status"] = "ignored"
             receipt["reason"] = "release tag is not the current base commit"
         return receipt

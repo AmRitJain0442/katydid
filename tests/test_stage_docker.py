@@ -62,7 +62,11 @@ def test_signed_pr_delivery_tests_exact_head_in_docker_without_ai_or_delivery(
             "repository": {"full_name": "firm/service"},
             "action": "opened",
             "number": 7,
-            "pull_request": {"number": 7, "base": {"ref": "main"}},
+            "pull_request": {
+                "number": 7,
+                "base": {"ref": "main"},
+                "head": {"sha": head, "ref": "feature"},
+            },
         }
     ).encode()
     signature = "sha256=" + hmac.new(secret, body, hashlib.sha256).hexdigest()

@@ -14,6 +14,7 @@ from katydid.store import (
 
 DIGEST_A = "a" * 64
 DIGEST_B = "b" * 64
+REPLAY_A = "c" * 64
 
 
 def make_store(tmp_path):
@@ -91,6 +92,124 @@ def test_delivery_identity_rejects_changed_body_or_repository(tmp_path, digest, 
 
     assert len(store.list_tasks()) == 1
     assert store.group_version("org/repo", "pull-request:17") == 1
+
+
+def test_new_delivery_id_for_same_replay_key_aliases_canonical_task(tmp_path):
+    store = make_store(tmp_path)
+    original = store.ingest_event(
+        "github",
+        "delivery-1",
+        DIGEST_A,
+        "org/repo",
+        {"revision": "abc"},
+        group="release:v1",
+        expected_group_version=0,
+        replay_key=REPLAY_A,
+    )
+    alias = store.ingest_event(
+        "github",
+        "delivery-2",
+        DIGEST_A,
+        "org/repo",
+        None,
+        group="ignored-on-replay",
+        expected_group_version=999,
+        replay_key=REPLAY_A,
+    )
+
+    assert alias["duplicate"] is True
+    assert alias["delivery_id"] == "delivery-2"
+    assert alias["task_id"] == original["task_id"]
+    assert alias["group"] == "release:v1"
+    assert alias["group_version"] == 1
+    assert alias["replay_key"] == REPLAY_A
+    assert len(store.list_tasks()) == 1
+    assert store.group_version("org/repo", "release:v1") == 1
+    assert store.group_version("org/repo", "ignored-on-replay") == 0
+    canonical = store.get_replay("github", "org/repo", REPLAY_A)
+    assert canonical["delivery_id"] == "delivery-1"
+    assert canonical["task_id"] == original["task_id"]
+    assert canonical["replay_key"] == REPLAY_A
+    assert store.get_event("github", "delivery-2")["task_id"] == original["task_id"]
+
+
+def test_replay_key_rejects_changed_body_without_creating_alias(tmp_path):
+    store = make_store(tmp_path)
+    store.ingest_event(
+        "github",
+        "delivery-1",
+        DIGEST_A,
+        "org/repo",
+        {},
+        replay_key=REPLAY_A,
+    )
+
+    with pytest.raises(EventConflict, match="different body"):
+        store.ingest_event(
+            "github",
+            "delivery-2",
+            DIGEST_B,
+            "org/repo",
+            None,
+            replay_key=REPLAY_A,
+        )
+
+    with pytest.raises(EventNotFound):
+        store.get_event("github", "delivery-2")
+
+
+def test_same_delivery_rejects_changed_or_removed_persisted_replay_identity(tmp_path):
+    store = make_store(tmp_path)
+    store.ingest_event(
+        "github",
+        "delivery-1",
+        DIGEST_A,
+        "org/repo",
+        {},
+        replay_key=REPLAY_A,
+    )
+
+    with pytest.raises(EventConflict, match="different replay key"):
+        store.ingest_event("github", "delivery-1", DIGEST_A, "org/repo", {})
+    with pytest.raises(EventConflict, match="different replay key"):
+        store.ingest_event(
+            "github",
+            "delivery-1",
+            DIGEST_A,
+            "org/repo",
+            {},
+            replay_key="d" * 64,
+        )
+
+
+def test_legacy_delivery_without_replay_key_still_deduplicates_after_upgrade(tmp_path):
+    store = make_store(tmp_path)
+    original = store.ingest_event("github", "delivery-1", DIGEST_A, "org/repo", {})
+
+    replay = store.ingest_event(
+        "github",
+        "delivery-1",
+        DIGEST_A,
+        "org/repo",
+        None,
+        replay_key=REPLAY_A,
+    )
+
+    assert replay["duplicate"] is True
+    assert replay["task_id"] == original["task_id"]
+    assert replay["replay_key"] is None
+    assert len(store.list_tasks()) == 1
+
+
+def test_replay_key_is_scoped_by_provider_and_repository(tmp_path):
+    store = make_store(tmp_path)
+    first = store.ingest_event("github", "delivery-1", DIGEST_A, "org/one", {}, replay_key=REPLAY_A)
+    second = store.ingest_event(
+        "github", "delivery-2", DIGEST_A, "org/two", {}, replay_key=REPLAY_A
+    )
+    third = store.ingest_event("gitlab", "delivery-3", DIGEST_A, "org/one", {}, replay_key=REPLAY_A)
+
+    assert len({first["task_id"], second["task_id"], third["task_id"]}) == 3
 
 
 def test_group_cas_rejects_stale_lookup_without_recording_delivery(tmp_path):
@@ -316,6 +435,50 @@ def test_simultaneous_group_cas_allows_only_one_new_version(tmp_path):
     assert Store(path).group_version("org/repo", "pull-request:17") == 2
 
 
+def test_simultaneous_replay_aliases_create_one_task_and_one_group_version(tmp_path):
+    path = tmp_path / "state.db"
+    Store(path)
+    barrier = threading.Barrier(3)
+    outcomes = []
+    failures = []
+
+    def attempt(delivery):
+        candidate = Store(path)
+        barrier.wait()
+        try:
+            outcomes.append(
+                candidate.ingest_event(
+                    "github",
+                    delivery,
+                    DIGEST_A,
+                    "org/repo",
+                    {"delivery": delivery},
+                    group="release:v1",
+                    expected_group_version=0,
+                    replay_key=REPLAY_A,
+                )
+            )
+        except BaseException as exc:
+            failures.append(exc)
+
+    threads = [
+        threading.Thread(target=attempt, args=(delivery,))
+        for delivery in ("delivery-1", "delivery-2")
+    ]
+    for thread in threads:
+        thread.start()
+    barrier.wait()
+    for thread in threads:
+        thread.join()
+
+    assert failures == []
+    assert sorted(outcome["duplicate"] for outcome in outcomes) == [False, True]
+    assert len({outcome["task_id"] for outcome in outcomes}) == 1
+    reopened = Store(path)
+    assert len(reopened.list_tasks()) == 1
+    assert reopened.group_version("org/repo", "release:v1") == 1
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -328,6 +491,8 @@ def test_simultaneous_group_cas_allows_only_one_new_version(tmp_path):
         {"group": "bad\x00group"},
         {"expected_group_version": -1},
         {"expected_group_version": True},
+        {"replay_key": "C" * 64},
+        {"replay_key": "c" * 63},
     ],
 )
 def test_event_identifiers_digest_and_version_are_bounded(tmp_path, kwargs):
@@ -354,6 +519,8 @@ def test_expected_version_without_group_and_missing_receipt_fail_closed(tmp_path
         )
     with pytest.raises(EventNotFound):
         store.get_event("github", "missing")
+    with pytest.raises(EventNotFound):
+        store.get_replay("github", "org/repo", REPLAY_A)
 
 
 def test_receipt_schema_stores_only_digest_routing_and_task_reference(tmp_path):
@@ -386,6 +553,8 @@ def test_reopening_an_existing_store_adds_event_tables_without_changing_tasks(tm
     store = Store(path)
     task = store.create_task("org/repo", {"existing": True})
     with sqlite3.connect(path) as connection:
+        connection.execute("DROP TABLE provider_delivery_replays")
+        connection.execute("DROP TABLE provider_replays")
         connection.execute("DROP TABLE provider_deliveries")
         connection.execute("DROP TABLE event_task_groups")
         connection.execute("DROP TABLE event_groups")

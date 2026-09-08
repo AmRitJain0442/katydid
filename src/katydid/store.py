@@ -168,6 +168,26 @@ class Store:
 
                 CREATE INDEX IF NOT EXISTS provider_deliveries_scope
                     ON provider_deliveries(repository, group_key, group_version);
+
+                CREATE TABLE IF NOT EXISTS provider_replays (
+                    provider TEXT NOT NULL,
+                    repository TEXT NOT NULL,
+                    replay_key TEXT NOT NULL,
+                    canonical_delivery_id TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    PRIMARY KEY(provider, repository, replay_key),
+                    FOREIGN KEY(provider, canonical_delivery_id)
+                        REFERENCES provider_deliveries(provider, delivery_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS provider_delivery_replays (
+                    provider TEXT NOT NULL,
+                    delivery_id TEXT NOT NULL,
+                    replay_key TEXT NOT NULL,
+                    PRIMARY KEY(provider, delivery_id),
+                    FOREIGN KEY(provider, delivery_id)
+                        REFERENCES provider_deliveries(provider, delivery_id)
+                );
                 """
             )
 
@@ -280,12 +300,17 @@ class Store:
         repository: str,
         group: str | None,
         expected_group_version: int | None,
+        replay_key: str | None,
     ) -> None:
         cls._bounded_id("provider", provider, 64)
         cls._bounded_id("delivery_id", delivery_id, 256)
         cls._bounded_id("repository", repository, 512)
         if not isinstance(body_sha256, str) or _SHA256.fullmatch(body_sha256) is None:
             raise ValueError("body_sha256 must be 64 lowercase hexadecimal characters")
+        if replay_key is not None and (
+            not isinstance(replay_key, str) or _SHA256.fullmatch(replay_key) is None
+        ):
+            raise ValueError("replay_key must be 64 lowercase hexadecimal characters")
         if group is not None:
             cls._bounded_id("group", group, 256)
         if expected_group_version is not None:
@@ -302,6 +327,13 @@ class Store:
     def _receipt(cls, connection: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
         task_id = row["task_id"]
         task = cls._task(cls._required_task(connection, task_id)) if task_id is not None else None
+        replay = connection.execute(
+            """
+            SELECT replay_key FROM provider_delivery_replays
+            WHERE provider = ? AND delivery_id = ?
+            """,
+            (row["provider"], row["delivery_id"]),
+        ).fetchone()
         return {
             "provider": row["provider"],
             "delivery_id": row["delivery_id"],
@@ -311,6 +343,7 @@ class Store:
             "group_version": row["group_version"],
             "task_id": task_id,
             "task": task,
+            "replay_key": replay["replay_key"] if replay is not None else None,
             "created_at": row["created_at"],
         }
 
@@ -381,6 +414,7 @@ class Store:
         *,
         group: str | None = None,
         expected_group_version: int | None = None,
+        replay_key: str | None = None,
     ) -> dict[str, Any]:
         """Atomically deduplicate a provider delivery and supersede its exact scope."""
         self._event_inputs(
@@ -390,6 +424,7 @@ class Store:
             repository,
             group,
             expected_group_version,
+            replay_key,
         )
         now = time.time()
         with self._write() as connection:
@@ -404,12 +439,79 @@ class Store:
                 ).fetchone(),
             )
             if existing is not None:
+                existing_receipt = self._receipt(connection, existing)
                 if existing["body_sha256"] != body_sha256 or existing["repository"] != repository:
                     raise EventConflict(
                         "provider delivery is already associated with a different body "
                         "or repository"
                     )
-                return {**self._receipt(connection, existing), "duplicate": True}
+                if (
+                    existing_receipt["replay_key"] is not None
+                    and existing_receipt["replay_key"] != replay_key
+                ):
+                    raise EventConflict(
+                        "provider delivery is already associated with a different replay key"
+                    )
+                return {**existing_receipt, "duplicate": True}
+
+            if replay_key is not None:
+                canonical = cast(
+                    sqlite3.Row | None,
+                    connection.execute(
+                        """
+                        SELECT provider_deliveries.* FROM provider_replays
+                        JOIN provider_deliveries
+                            ON provider_deliveries.provider = provider_replays.provider
+                            AND provider_deliveries.delivery_id =
+                                provider_replays.canonical_delivery_id
+                        WHERE provider_replays.provider = ?
+                            AND provider_replays.repository = ?
+                            AND provider_replays.replay_key = ?
+                        """,
+                        (provider, repository, replay_key),
+                    ).fetchone(),
+                )
+                if canonical is not None:
+                    if canonical["body_sha256"] != body_sha256:
+                        raise EventConflict(
+                            "provider replay key is associated with a different body"
+                        )
+                    connection.execute(
+                        """
+                        INSERT INTO provider_deliveries(
+                            provider, delivery_id, body_sha256, repository, group_key,
+                            group_version, task_id, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            provider,
+                            delivery_id,
+                            canonical["body_sha256"],
+                            repository,
+                            canonical["group_key"],
+                            canonical["group_version"],
+                            canonical["task_id"],
+                            now,
+                        ),
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO provider_delivery_replays(provider, delivery_id, replay_key)
+                        VALUES (?, ?, ?)
+                        """,
+                        (provider, delivery_id, replay_key),
+                    )
+                    alias = cast(
+                        sqlite3.Row,
+                        connection.execute(
+                            """
+                            SELECT * FROM provider_deliveries
+                            WHERE provider = ? AND delivery_id = ?
+                            """,
+                            (provider, delivery_id),
+                        ).fetchone(),
+                    )
+                    return {**self._receipt(connection, alias), "duplicate": True}
 
             if payload is not None and not isinstance(payload, dict):
                 raise ValueError("payload must be a JSON object or None")
@@ -557,6 +659,22 @@ class Store:
                     now,
                 ),
             )
+            if replay_key is not None:
+                connection.execute(
+                    """
+                    INSERT INTO provider_delivery_replays(provider, delivery_id, replay_key)
+                    VALUES (?, ?, ?)
+                    """,
+                    (provider, delivery_id, replay_key),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO provider_replays(
+                        provider, repository, replay_key, canonical_delivery_id, created_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (provider, repository, replay_key, delivery_id, now),
+                )
             receipt = cast(
                 sqlite3.Row,
                 connection.execute(
@@ -585,6 +703,32 @@ class Store:
             )
             if row is None:
                 raise EventNotFound((provider, delivery_id))
+            return self._receipt(connection, row)
+
+    def get_replay(self, provider: str, repository: str, replay_key: str) -> dict[str, Any]:
+        self._bounded_id("provider", provider, 64)
+        self._bounded_id("repository", repository, 512)
+        if not isinstance(replay_key, str) or _SHA256.fullmatch(replay_key) is None:
+            raise ValueError("replay_key must be 64 lowercase hexadecimal characters")
+        with closing(self._connect()) as connection:
+            row = cast(
+                sqlite3.Row | None,
+                connection.execute(
+                    """
+                    SELECT provider_deliveries.* FROM provider_replays
+                    JOIN provider_deliveries
+                        ON provider_deliveries.provider = provider_replays.provider
+                        AND provider_deliveries.delivery_id =
+                            provider_replays.canonical_delivery_id
+                    WHERE provider_replays.provider = ?
+                        AND provider_replays.repository = ?
+                        AND provider_replays.replay_key = ?
+                    """,
+                    (provider, repository, replay_key),
+                ).fetchone(),
+            )
+            if row is None:
+                raise EventNotFound((provider, repository, replay_key))
             return self._receipt(connection, row)
 
     def group_version(self, repository: str, group: str) -> int:
