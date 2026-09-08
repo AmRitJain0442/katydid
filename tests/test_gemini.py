@@ -104,6 +104,30 @@ def test_factory_preserves_codex_default_and_selects_gemini(tmp_path: Path) -> N
     assert isinstance(create_provider(config(), tmp_path / "gemini"), GeminiProvider)
 
 
+def test_worker_keeps_adc_but_ignores_ambient_backend_and_api_key_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    credential = "private-service-account.json"
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", credential)
+    removed = (
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "GOOGLE_GENAI_USE_VERTEXAI",
+        "GOOGLE_GENAI_USE_ENTERPRISE",
+        "GOOGLE_CLOUD_PROJECT",
+        "GOOGLE_CLOUD_LOCATION",
+        "GOOGLE_VERTEX_BASE_URL",
+        "GOOGLE_GEMINI_BASE_URL",
+    )
+    for name in removed:
+        monkeypatch.setenv(name, "host-override")
+
+    environment = gemini._worker_environment()
+
+    assert environment["GOOGLE_APPLICATION_CREDENTIALS"] == credential
+    assert all(name not in environment for name in removed)
+
+
 def test_valid_response_is_strictly_parsed_and_receipted(
     tmp_path: Path, stub: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

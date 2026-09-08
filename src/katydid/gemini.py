@@ -66,8 +66,11 @@ def _worker_environment() -> dict[str, str]:
         "GEMINI_API_KEY",
         "GOOGLE_API_KEY",
         "GOOGLE_GENAI_USE_VERTEXAI",
+        "GOOGLE_GENAI_USE_ENTERPRISE",
         "GOOGLE_CLOUD_PROJECT",
         "GOOGLE_CLOUD_LOCATION",
+        "GOOGLE_VERTEX_BASE_URL",
+        "GOOGLE_GEMINI_BASE_URL",
     ):
         environment.pop(name, None)
     environment["PYTHONUNBUFFERED"] = "1"
@@ -216,6 +219,8 @@ class GeminiProvider:
         }
         started = time.monotonic()
         response = _run_worker("generate", request, folder, self.config.timeout_seconds, cancel)
+        if cancel.is_set():
+            raise AIError("AI call cancelled")
         text = response.get("text")
         metadata = response.get("metadata")
         if not isinstance(text, str) or not isinstance(metadata, dict):
@@ -234,6 +239,8 @@ class GeminiProvider:
                     relative_file(edit.path)
                 except ValueError as exc:
                     raise AIError("Gemini returned an invalid repair path") from exc
+        if cancel.is_set():
+            raise AIError("AI call cancelled")
         (folder / "response.json").write_text(text, encoding="utf-8")
         usage = metadata.get("usage")
         request_ids = metadata.get("request_ids")
