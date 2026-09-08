@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
 import uuid
@@ -36,6 +37,7 @@ WORKFLOW_STATES = frozenset(
     }
 )
 CONTROL_ACTIONS = frozenset({"pause", "resume", "cancel", "steer"})
+_SHA256 = re.compile(r"^[a-f0-9]{64}$")
 
 
 class StoreError(RuntimeError):
@@ -56,6 +58,14 @@ class StaleLease(StoreError):
 
 class InvalidTransition(StoreError):
     """A task state or control transition is invalid."""
+
+
+class EventConflict(StoreError):
+    """A provider delivery conflicts with its receipt or group version."""
+
+
+class EventNotFound(KeyError):
+    """The requested provider delivery receipt does not exist."""
 
 
 @dataclass(frozen=True)
@@ -118,6 +128,46 @@ class Store:
                 CREATE INDEX IF NOT EXISTS tasks_expired_leases
                     ON tasks(lease_expires_at)
                     WHERE lease_expires_at IS NOT NULL;
+
+                CREATE TABLE IF NOT EXISTS event_groups (
+                    repository TEXT NOT NULL,
+                    group_key TEXT NOT NULL,
+                    version INTEGER NOT NULL,
+                    updated_at REAL NOT NULL,
+                    PRIMARY KEY(repository, group_key),
+                    CHECK(version >= 1)
+                );
+
+                CREATE TABLE IF NOT EXISTS event_task_groups (
+                    task_id TEXT PRIMARY KEY REFERENCES tasks(id),
+                    repository TEXT NOT NULL,
+                    group_key TEXT NOT NULL,
+                    group_version INTEGER NOT NULL,
+                    created_at REAL NOT NULL,
+                    CHECK(group_version >= 1)
+                );
+
+                CREATE INDEX IF NOT EXISTS event_task_groups_scope
+                    ON event_task_groups(repository, group_key, group_version);
+
+                CREATE TABLE IF NOT EXISTS provider_deliveries (
+                    provider TEXT NOT NULL,
+                    delivery_id TEXT NOT NULL,
+                    body_sha256 TEXT NOT NULL,
+                    repository TEXT NOT NULL,
+                    group_key TEXT,
+                    group_version INTEGER,
+                    task_id TEXT REFERENCES tasks(id),
+                    created_at REAL NOT NULL,
+                    PRIMARY KEY(provider, delivery_id),
+                    CHECK(
+                        (group_key IS NULL AND group_version IS NULL)
+                        OR (group_key IS NOT NULL AND group_version >= 1)
+                    )
+                );
+
+                CREATE INDEX IF NOT EXISTS provider_deliveries_scope
+                    ON provider_deliveries(repository, group_key, group_version);
                 """
             )
 
@@ -210,6 +260,61 @@ class Store:
         )
 
     @staticmethod
+    def _bounded_id(name: str, value: str, maximum: int) -> str:
+        if (
+            not isinstance(value, str)
+            or not value
+            or value != value.strip()
+            or len(value) > maximum
+            or any(ord(character) < 32 or ord(character) == 127 for character in value)
+        ):
+            raise ValueError(f"{name} must be a normalized non-empty string up to {maximum} chars")
+        return value
+
+    @classmethod
+    def _event_inputs(
+        cls,
+        provider: str,
+        delivery_id: str,
+        body_sha256: str,
+        repository: str,
+        group: str | None,
+        expected_group_version: int | None,
+    ) -> None:
+        cls._bounded_id("provider", provider, 64)
+        cls._bounded_id("delivery_id", delivery_id, 256)
+        cls._bounded_id("repository", repository, 512)
+        if not isinstance(body_sha256, str) or _SHA256.fullmatch(body_sha256) is None:
+            raise ValueError("body_sha256 must be 64 lowercase hexadecimal characters")
+        if group is not None:
+            cls._bounded_id("group", group, 256)
+        if expected_group_version is not None:
+            if (
+                isinstance(expected_group_version, bool)
+                or not isinstance(expected_group_version, int)
+                or expected_group_version < 0
+            ):
+                raise ValueError("expected_group_version must be a non-negative integer")
+            if group is None:
+                raise ValueError("expected_group_version requires group")
+
+    @classmethod
+    def _receipt(cls, connection: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
+        task_id = row["task_id"]
+        task = cls._task(cls._required_task(connection, task_id)) if task_id is not None else None
+        return {
+            "provider": row["provider"],
+            "delivery_id": row["delivery_id"],
+            "body_sha256": row["body_sha256"],
+            "repository": row["repository"],
+            "group": row["group_key"],
+            "group_version": row["group_version"],
+            "task_id": task_id,
+            "task": task,
+            "created_at": row["created_at"],
+        }
+
+    @staticmethod
     def _validate_ttl(ttl_seconds: int) -> None:
         if isinstance(ttl_seconds, bool) or not isinstance(ttl_seconds, int) or ttl_seconds <= 0:
             raise ValueError("ttl_seconds must be a positive integer")
@@ -265,6 +370,235 @@ class Store:
             )
             self._event(connection, task_id, "created", "queued", 0, {}, now)
             return self._task(self._required_task(connection, task_id))
+
+    def ingest_event(
+        self,
+        provider: str,
+        delivery_id: str,
+        body_sha256: str,
+        repository: str,
+        payload: dict[str, Any] | None,
+        *,
+        group: str | None = None,
+        expected_group_version: int | None = None,
+    ) -> dict[str, Any]:
+        """Atomically deduplicate a provider delivery and supersede its exact scope."""
+        self._event_inputs(
+            provider,
+            delivery_id,
+            body_sha256,
+            repository,
+            group,
+            expected_group_version,
+        )
+        now = time.time()
+        with self._write() as connection:
+            existing = cast(
+                sqlite3.Row | None,
+                connection.execute(
+                    """
+                    SELECT * FROM provider_deliveries
+                    WHERE provider = ? AND delivery_id = ?
+                    """,
+                    (provider, delivery_id),
+                ).fetchone(),
+            )
+            if existing is not None:
+                if existing["body_sha256"] != body_sha256 or existing["repository"] != repository:
+                    raise EventConflict(
+                        "provider delivery is already associated with a different body "
+                        "or repository"
+                    )
+                return {**self._receipt(connection, existing), "duplicate": True}
+
+            if payload is not None and not isinstance(payload, dict):
+                raise ValueError("payload must be a JSON object or None")
+            payload_json = self._json(payload) if payload is not None else None
+            group_version: int | None = None
+            superseded: list[sqlite3.Row] = []
+            replacement_paused = False
+            replacement_requires_reconciliation = False
+            if group is not None:
+                current_row = connection.execute(
+                    """
+                    SELECT version FROM event_groups
+                    WHERE repository = ? AND group_key = ?
+                    """,
+                    (repository, group),
+                ).fetchone()
+                current_version = int(current_row["version"]) if current_row is not None else 0
+                if expected_group_version is not None and expected_group_version != current_version:
+                    raise EventConflict(
+                        f"event group version changed: expected {expected_group_version}, "
+                        f"found {current_version}"
+                    )
+                group_version = current_version + 1
+                superseded = connection.execute(
+                    """
+                    SELECT tasks.* FROM tasks
+                    JOIN event_task_groups ON event_task_groups.task_id = tasks.id
+                    WHERE event_task_groups.repository = ?
+                        AND event_task_groups.group_key = ?
+                        AND tasks.state NOT IN ('completed', 'failed', 'cancelled', 'unresolved')
+                    ORDER BY tasks.created_at, tasks.id
+                    """,
+                    (repository, group),
+                ).fetchall()
+                replacement_paused = any(row["state"] == "paused" for row in superseded)
+                replacement_requires_reconciliation = any(
+                    row["state"] in UNKNOWN_OUTCOME_STATES for row in superseded
+                )
+                replacement_paused = replacement_paused or replacement_requires_reconciliation
+
+            replacement_id = uuid.uuid4().hex if payload_json is not None else None
+            for row in superseded:
+                previous_state = str(row["state"])
+                unknown_outcome = previous_state in UNKNOWN_OUTCOME_STATES
+                state = "unresolved" if unknown_outcome else "cancelled"
+                epoch = int(row["control_epoch"]) + 1
+                result = {
+                    "reason": (
+                        "provider delivery superseded a stage with possible external effects"
+                        if unknown_outcome
+                        else "superseded by a newer provider delivery"
+                    ),
+                    "provider": provider,
+                    "delivery_id": delivery_id,
+                    "group": group,
+                    "group_version": group_version,
+                    "replacement_task_id": replacement_id,
+                    "previous_state": previous_state,
+                    "reconciliation_required": unknown_outcome,
+                }
+                connection.execute(
+                    """
+                    UPDATE tasks
+                    SET state = ?, control_epoch = ?, result_json = ?, lease_worker = NULL,
+                        lease_epoch = NULL, lease_expires_at = NULL, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (state, epoch, self._json(result), now, row["id"]),
+                )
+                self._event(
+                    connection,
+                    str(row["id"]),
+                    "superseded",
+                    state,
+                    epoch,
+                    result,
+                    now,
+                )
+
+            if group is not None:
+                connection.execute(
+                    """
+                    INSERT INTO event_groups(repository, group_key, version, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(repository, group_key) DO UPDATE SET
+                        version = excluded.version,
+                        updated_at = excluded.updated_at
+                    """,
+                    (repository, group, group_version, now),
+                )
+
+            if payload_json is not None:
+                assert replacement_id is not None
+                state = "paused" if replacement_paused else "queued"
+                details = {
+                    "provider": provider,
+                    "delivery_id": delivery_id,
+                    "group": group,
+                    "group_version": group_version,
+                }
+                if replacement_requires_reconciliation:
+                    details.update(
+                        {
+                            "reconciliation_required": True,
+                            "paused_reason": (
+                                "a superseded task has a possible unknown external outcome"
+                            ),
+                        }
+                    )
+                connection.execute(
+                    """
+                    INSERT INTO tasks(
+                        id, repository, payload_json, instructions_json, result_json,
+                        idempotency_key, state, control_epoch, created_at, updated_at
+                    ) VALUES (?, ?, ?, '[]', NULL, NULL, ?, 0, ?, ?)
+                    """,
+                    (replacement_id, repository, payload_json, state, now, now),
+                )
+                self._event(connection, replacement_id, "created", state, 0, details, now)
+                if group is not None:
+                    connection.execute(
+                        """
+                        INSERT INTO event_task_groups(
+                            task_id, repository, group_key, group_version, created_at
+                        ) VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (replacement_id, repository, group, group_version, now),
+                    )
+
+            connection.execute(
+                """
+                INSERT INTO provider_deliveries(
+                    provider, delivery_id, body_sha256, repository, group_key,
+                    group_version, task_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    provider,
+                    delivery_id,
+                    body_sha256,
+                    repository,
+                    group,
+                    group_version,
+                    replacement_id,
+                    now,
+                ),
+            )
+            receipt = cast(
+                sqlite3.Row,
+                connection.execute(
+                    """
+                    SELECT * FROM provider_deliveries
+                    WHERE provider = ? AND delivery_id = ?
+                    """,
+                    (provider, delivery_id),
+                ).fetchone(),
+            )
+            return {**self._receipt(connection, receipt), "duplicate": False}
+
+    def get_event(self, provider: str, delivery_id: str) -> dict[str, Any]:
+        self._bounded_id("provider", provider, 64)
+        self._bounded_id("delivery_id", delivery_id, 256)
+        with closing(self._connect()) as connection:
+            row = cast(
+                sqlite3.Row | None,
+                connection.execute(
+                    """
+                    SELECT * FROM provider_deliveries
+                    WHERE provider = ? AND delivery_id = ?
+                    """,
+                    (provider, delivery_id),
+                ).fetchone(),
+            )
+            if row is None:
+                raise EventNotFound((provider, delivery_id))
+            return self._receipt(connection, row)
+
+    def group_version(self, repository: str, group: str) -> int:
+        self._bounded_id("repository", repository, 512)
+        self._bounded_id("group", group, 256)
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT version FROM event_groups
+                WHERE repository = ? AND group_key = ?
+                """,
+                (repository, group),
+            ).fetchone()
+            return int(row["version"]) if row is not None else 0
 
     def get_task(self, task_id: str) -> dict[str, Any]:
         with closing(self._connect()) as connection:
