@@ -125,6 +125,7 @@ Safe file paths are forward-slash relative paths without empty, `.`, `..`, `.git
 | `mode: github` | Requires `github_repository: owner/name`. Push the candidate, open a PR, and inspect that exact head through `gh`. With `auto_merge: true`, wait up to 900 seconds for reported checks and a clean merge state, then merge with an exact-head guard. |
 | `github_repository` | Required for GitHub mode and rejected unless it is a simple `owner/name`. It must match the registered GitHub source when used. |
 | `auto_merge` | `false`. Enables the exact-revision local or GitHub merge path. Katydid never requests admin bypass or force updates. |
+| `github_required_checks` | Up to 100 unique GitHub check-run or commit-status names. Each must report `success` for the exact candidate SHA before merge and for the exact merged/base SHA before release. Missing and pending names wait up to 900 seconds; failed or ambiguous names stop the operation. |
 
 GitHub mode relies on an already authenticated GitHub CLI and server-side repository rules. A clean PR with no reported checks becomes eligible after a ten-second grace period; configure required checks and branch protection on GitHub if a no-check PR must remain blocked. See [Git workspaces and delivery](GIT.md).
 
@@ -135,6 +136,17 @@ Immediately before delivery, the controller requires no remaining tracked diff a
 For Gemini configuration and exact required GitHub check names, see the
 [Gemini and GitHub guide](GEMINI.md). `delivery.github_required_checks` is central policy: every
 named job must finish successfully before merge, including when GitHub has not yet created the jobs.
+Before any GitHub-backed release hook, Katydid independently queries the exact merged/base commit
+and requires the same names to succeed there. This prevents a watched base update from deploying
+while its post-merge CI is missing, pending, or failed. The wait remains subject to task
+cancellation, the active lease, unchanged central policy, and an unchanged registered base SHA.
+
+Commit gates use GitHub's [check runs for a Git reference](https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference)
+with the official `latest` filter and the [combined commit status](https://docs.github.com/en/rest/commits/statuses#get-the-combined-status-for-a-specific-reference),
+which reports the latest status for each context. Queries use pages of 100 with a hard 1,000-result
+limit. A required name appearing more than once across returned check runs and status contexts is
+ambiguous and cannot authorize release. Stored `github_release_checks` evidence contains only the
+repository, exact SHA, required names, source kind, and successful state.
 
 Every deployable AI repair now passes the profile's explicit `release` stage and central required
 checks before publication. Missing or failed release evidence blocks publication. A manually

@@ -16,7 +16,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 MAX_EDIT_BYTES = 200_000
@@ -25,6 +25,8 @@ GIT_TIMEOUT_SECONDS = 60
 GH_TIMEOUT_SECONDS = 60
 PULL_REQUEST_POLL_SECONDS = 2.0
 NO_CHECK_GRACE_SECONDS = 10.0
+MAX_GITHUB_CHECK_RESULTS = 1000
+GITHUB_API_VERSION = "2022-11-28"
 _SHA = re.compile(r"[0-9a-fA-F]{40,64}\Z")
 _GITHUB_PART = re.compile(r"[A-Za-z0-9_.-]+\Z")
 _EDIT_MANIFEST = "katydid-edits-v1.json"
@@ -603,6 +605,17 @@ def _gh_json(*args: str) -> dict[str, Any]:
     return value
 
 
+def _gh_json_timeout(timeout_seconds: int, *args: str) -> dict[str, Any]:
+    raw = _run(["gh", *args], timeout=min(GH_TIMEOUT_SECONDS, max(1, timeout_seconds))).stdout
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise WorkspaceError("GitHub CLI returned invalid JSON") from exc
+    if not isinstance(value, dict):
+        raise WorkspaceError("GitHub CLI returned an unexpected response")
+    return value
+
+
 def open_pull_request(
     workspace: GitWorkspace,
     repo: str,
@@ -773,6 +786,204 @@ def wait_pull_request(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise WorkspaceError("Timed out waiting for pull request checks")
+        cancel.wait(min(PULL_REQUEST_POLL_SECONDS, remaining))
+
+
+def _commit_api_page(
+    repo: str,
+    sha: str,
+    kind: Literal["checks", "statuses"],
+    page: int,
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    endpoint = (
+        f"repos/{repo}/commits/{sha}/check-runs"
+        if kind == "checks"
+        else f"repos/{repo}/commits/{sha}/status"
+    )
+    arguments = [
+        "api",
+        endpoint,
+        "--method",
+        "GET",
+        "-H",
+        "Accept: application/vnd.github+json",
+        "-H",
+        f"X-GitHub-Api-Version: {GITHUB_API_VERSION}",
+        "-f",
+        "per_page=100",
+        "-f",
+        f"page={page}",
+    ]
+    if kind == "checks":
+        arguments.extend(["-f", "filter=latest"])
+    return _gh_json_timeout(timeout_seconds, *arguments)
+
+
+def _commit_check_observations(repo: str, sha: str, timeout_seconds: int) -> list[dict[str, str]]:
+    deadline = time.monotonic() + timeout_seconds
+
+    def remaining() -> int:
+        value = deadline - time.monotonic()
+        if value <= 0:
+            raise WorkspaceError("Timed out reading commit checks")
+        return max(1, int(value))
+
+    observations: list[dict[str, str]] = []
+    fetched = 0
+    total: int | None = None
+    for page in range(1, 12):
+        value = _commit_api_page(repo, sha, "checks", page, remaining())
+        count = value.get("total_count")
+        runs = value.get("check_runs")
+        if (
+            isinstance(count, bool)
+            or not isinstance(count, int)
+            or count < 0
+            or count > MAX_GITHUB_CHECK_RESULTS
+            or not isinstance(runs, list)
+            or len(runs) > 100
+            or (total is not None and count != total)
+        ):
+            raise WorkspaceError("GitHub returned invalid or excessive commit check data")
+        total = count
+        for run in runs:
+            if not isinstance(run, dict) or str(run.get("head_sha", "")).lower() != sha:
+                raise WorkspaceError("GitHub commit check response did not match the exact SHA")
+            name = run.get("name")
+            status = str(run.get("status", "")).lower()
+            conclusion = str(run.get("conclusion") or "").lower()
+            if not isinstance(name, str) or not name:
+                raise WorkspaceError("GitHub returned invalid commit check data")
+            state = (
+                "pending"
+                if status != "completed"
+                else ("success" if conclusion == "success" else "failed")
+            )
+            observations.append({"name": name, "kind": "check_run", "state": state})
+        fetched += len(runs)
+        if fetched >= count:
+            if fetched != count:
+                raise WorkspaceError("GitHub returned inconsistent commit check pagination")
+            break
+        if not runs or page == 11:
+            raise WorkspaceError("GitHub commit check pagination was incomplete")
+
+    fetched = 0
+    total = None
+    for page in range(1, 12):
+        value = _commit_api_page(repo, sha, "statuses", page, remaining())
+        count = value.get("total_count")
+        statuses = value.get("statuses")
+        if (
+            str(value.get("sha", "")).lower() != sha
+            or isinstance(count, bool)
+            or not isinstance(count, int)
+            or count < 0
+            or count > MAX_GITHUB_CHECK_RESULTS
+            or not isinstance(statuses, list)
+            or len(statuses) > 100
+            or (total is not None and count != total)
+        ):
+            raise WorkspaceError("GitHub returned invalid or excessive commit status data")
+        total = count
+        for status in statuses:
+            if not isinstance(status, dict):
+                raise WorkspaceError("GitHub returned invalid commit status data")
+            name = status.get("context")
+            value_state = str(status.get("state", "")).lower()
+            if (
+                not isinstance(name, str)
+                or not name
+                or value_state
+                not in {
+                    "pending",
+                    "success",
+                    "error",
+                    "failure",
+                }
+            ):
+                raise WorkspaceError("GitHub returned invalid commit status data")
+            observations.append(
+                {
+                    "name": name,
+                    "kind": "status_context",
+                    "state": "failed" if value_state in {"error", "failure"} else value_state,
+                }
+            )
+        fetched += len(statuses)
+        if fetched >= count:
+            if fetched != count:
+                raise WorkspaceError("GitHub returned inconsistent commit status pagination")
+            break
+        if not statuses or page == 11:
+            raise WorkspaceError("GitHub commit status pagination was incomplete")
+    return observations
+
+
+def wait_commit_checks(
+    repo: str,
+    sha: str,
+    cancel: threading.Event,
+    required_checks: tuple[str, ...],
+    timeout_seconds: int = 900,
+) -> dict[str, Any]:
+    """Wait for central required checks to succeed on one exact GitHub commit."""
+    repo = _github_repo(repo)
+    if not isinstance(sha, str) or not _SHA.fullmatch(sha):
+        raise WorkspaceError("sha must be a full commit SHA")
+    if not isinstance(cancel, threading.Event):
+        raise WorkspaceError("cancel must be a threading.Event")
+    if (
+        isinstance(timeout_seconds, bool)
+        or not isinstance(timeout_seconds, int)
+        or timeout_seconds <= 0
+        or timeout_seconds > 3600
+    ):
+        raise WorkspaceError("timeout_seconds must be from 1 through 3600")
+    if (
+        not isinstance(required_checks, tuple)
+        or not required_checks
+        or len(required_checks) > 100
+        or any(
+            not isinstance(name, str)
+            or not name.strip()
+            or len(name) > 200
+            or any(ord(char) < 32 for char in name)
+            for name in required_checks
+        )
+        or len(set(required_checks)) != len(required_checks)
+    ):
+        raise WorkspaceError("Required GitHub checks must be unique bounded names")
+    sha = sha.lower()
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        if cancel.is_set():
+            raise WorkspaceError("Commit check wait was cancelled")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise WorkspaceError("Timed out waiting for commit checks")
+        observations = _commit_check_observations(repo, sha, max(1, int(remaining)))
+        selected: list[dict[str, str]] = []
+        waiting = False
+        for name in required_checks:
+            matches = [item for item in observations if item["name"] == name]
+            if len(matches) > 1:
+                raise WorkspaceError(f"Required commit check name is ambiguous: {name}")
+            if not matches:
+                waiting = True
+                continue
+            match = matches[0]
+            if match["state"] == "failed":
+                raise WorkspaceError(f"Required commit check failed: {name}")
+            if match["state"] == "pending":
+                waiting = True
+            selected.append(match)
+        if not waiting:
+            return {"repository": repo, "sha": sha, "checks": selected}
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise WorkspaceError("Timed out waiting for commit checks")
         cancel.wait(min(PULL_REQUEST_POLL_SECONDS, remaining))
 
 

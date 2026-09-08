@@ -29,6 +29,7 @@ from katydid.workspace import (
     snapshot_files,
     source_head,
     source_revision,
+    wait_commit_checks,
 )
 
 
@@ -550,6 +551,19 @@ class Controller:
                 raise ControllerError("Release revision is no longer the current base")
 
         current()
+        if repo.delivery.mode == "github" and repo.delivery.github_required_checks:
+            state("verifying", stage="github-release-checks", release_sha=sha)
+            github = repo.delivery.github_repository
+            if github is None:
+                raise ControllerError("Missing GitHub repository")
+            checks = wait_commit_checks(
+                github,
+                sha,
+                cancelled,
+                tuple(repo.delivery.github_required_checks),
+            )
+            evidence["github_release_checks"] = checks
+            current()
         workspace = prepare_workspace(
             repo.source,
             folder / "release-workspace",

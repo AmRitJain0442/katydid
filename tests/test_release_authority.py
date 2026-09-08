@@ -13,6 +13,7 @@ from test_controller import (
 )
 
 import katydid.controller as controller_module
+from katydid.fleet import DeliveryConfig
 
 DEPLOY_CLEAN = """import sys
 from pathlib import Path
@@ -248,3 +249,57 @@ def test_pause_after_passing_health_cannot_record_release_success(
     assert outcome["release_hooks"][-1]["gate"]["passed"] is True
     assert not success_pointer(controller).exists()
     assert all(event["kind"] != "release_success" for event in controller.store.events(task["id"]))
+
+
+def test_github_release_waits_for_exact_commit_checks_before_deploy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = make_repository(tmp_path, "service", release_scripts=True)
+    repository.joinpath("app.py").write_text("VALUE = 2\n", encoding="utf-8")
+    repository.joinpath("deploy.py").write_text(DEPLOY_CLEAN, encoding="utf-8")
+    repository.joinpath("health.py").write_text(HEALTH_PASS, encoding="utf-8")
+    repository.joinpath("rollback.py").write_text(ROLLBACK, encoding="utf-8")
+    git(repository, "add", "app.py", "deploy.py", "health.py", "rollback.py")
+    git(repository, "commit", "-m", "healthy release fixture")
+    provider = DeterministicTestDouble()
+    controller = make_controller(
+        tmp_path,
+        [repository_policy(repository, release=True)],
+        provider,
+    )
+    local_repo = controller.config.repositories[0]
+    github_delivery = DeliveryConfig(
+        mode="github",
+        github_repository="owner/service",
+        auto_merge=True,
+        github_required_checks=["CI / required"],
+    )
+    github_repo = local_repo.model_copy(update={"delivery": github_delivery})
+    controller.config = controller.config.model_copy(update={"repositories": [github_repo]})
+    task = controller.enqueue("service", stage="release", mode="release")
+    expected_sha = git(repository, "rev-parse", "HEAD")
+    deployed = controller.directory / "releases" / "service" / "deployed.txt"
+    calls = []
+
+    def passing_checks(repo, sha, cancelled, required_checks, timeout_seconds=900):
+        assert not deployed.exists()
+        calls.append((repo, sha, cancelled, required_checks, timeout_seconds))
+        return {
+            "repository": repo,
+            "sha": sha,
+            "checks": [{"name": "CI / required", "kind": "check_run", "state": "success"}],
+        }
+
+    monkeypatch.setattr(controller_module, "wait_commit_checks", passing_checks)
+
+    result = controller.work_once()
+
+    assert result["state"] == "completed", result
+    assert result["result"]["outcome"] == "released"
+    assert calls and calls[0][0:2] == ("owner/service", expected_sha)
+    assert calls[0][3] == ("CI / required",)
+    assert result["result"]["github_release_checks"]["sha"] == expected_sha
+    assert deployed.read_text(encoding="utf-8") == f"clean:{expected_sha}"
+    assert success_pointer(controller).exists()
+    states = transition_states(controller, task["id"])
+    assert states.index("verifying") < states.index("deploying")
