@@ -74,7 +74,7 @@ jobs:
       - name: Install the approved immutable test image
         run: docker pull "$KATYDID_DOCKER_IMAGE"
       - name: Exercise real containment, cancellation, and orphan recovery
-        run: uv run --locked pytest tests/test_docker_integration.py -v --junitxml=.katydid/docker/junit.xml
+        run: uv run --locked pytest tests/test_docker_integration.py tests/test_stage_docker.py -v --junitxml=.katydid/docker/junit.xml
       - name: Run the offline isolated example
         run: uv run --locked katydid run examples/isolated-python/quality.yaml
       - name: Preserve isolation evidence

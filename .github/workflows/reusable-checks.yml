@@ -1,0 +1,220 @@
+name: Reusable Katydid checks
+
+on:
+  workflow_call:
+    inputs:
+      stage:
+        description: "Exact Katydid stage: pull-request, merge, nightly, or release"
+        required: true
+        type: string
+      profile:
+        description: Portable relative path to the target repository quality profile
+        required: true
+        type: string
+      target_ref:
+        description: Exact 40-character target repository commit
+        required: true
+        type: string
+      platform_ref:
+        description: Exact reviewed 40-character Katydid platform commit
+        required: true
+        type: string
+      artifact_suffix:
+        description: Stable lowercase identifier used to make the evidence artifact unique
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: ${{ inputs.artifact_suffix }} / ${{ inputs.stage }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Validate immutable revisions and bounded inputs
+        shell: bash
+        env:
+          KATYDID_ARTIFACT_SUFFIX: ${{ inputs.artifact_suffix }}
+          KATYDID_BASE_REF: ${{ github.event.pull_request.base.sha || '' }}
+          KATYDID_EVENT_NAME: ${{ github.event_name }}
+          KATYDID_EXPECTED_TARGET_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+          KATYDID_PLATFORM_REF: ${{ inputs.platform_ref }}
+          KATYDID_PROFILE: ${{ inputs.profile }}
+          KATYDID_STAGE: ${{ inputs.stage }}
+          KATYDID_TARGET_REF: ${{ inputs.target_ref }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+
+          stage = os.environ["KATYDID_STAGE"]
+          if stage not in {"pull-request", "merge", "nightly", "release"}:
+              raise SystemExit("stage must be pull-request, merge, nightly, or release")
+          event = os.environ["KATYDID_EVENT_NAME"]
+          if event not in {"pull_request", "push", "schedule", "release", "workflow_dispatch"}:
+              raise SystemExit("caller event is not supported by this reusable workflow")
+
+          sha = re.compile(r"[0-9a-f]{40}")
+          for name in ("KATYDID_TARGET_REF", "KATYDID_PLATFORM_REF"):
+              if sha.fullmatch(os.environ[name]) is None:
+                  raise SystemExit(f"{name.lower()} must be an exact lowercase 40-character SHA")
+          if os.environ["KATYDID_TARGET_REF"] != os.environ["KATYDID_EXPECTED_TARGET_REF"]:
+              raise SystemExit("target_ref must match the exact revision that triggered this run")
+          if os.environ["KATYDID_EVENT_NAME"] == "pull_request":
+              if sha.fullmatch(os.environ["KATYDID_BASE_REF"]) is None:
+                  raise SystemExit("pull-request base must be an exact lowercase commit SHA")
+          suffix = os.environ["KATYDID_ARTIFACT_SUFFIX"]
+          if re.fullmatch(r"[a-z][a-z0-9-]{0,63}", suffix) is None:
+              raise SystemExit("artifact_suffix must be a lowercase identifier")
+
+          profile = os.environ["KATYDID_PROFILE"]
+          parts = profile.split("/")
+          windows_devices = {
+              "aux", "clock$", "com1", "com2", "com3", "com4", "com5", "com6", "com7",
+              "com8", "com9", "con", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6",
+              "lpt7", "lpt8", "lpt9", "nul", "prn",
+          }
+          if (
+              not 1 <= len(profile) <= 240
+              or re.fullmatch(r"[A-Za-z0-9._/-]+\.ya?ml", profile) is None
+              or any(part in {"", ".", ".."} for part in parts)
+              or any(part.casefold() == ".git" for part in parts)
+              or any(part.casefold().startswith(".env") for part in parts)
+              or any(part.split(".", 1)[0].casefold() in windows_devices for part in parts)
+              or any(part.endswith((" ", ".")) for part in parts)
+          ):
+              raise SystemExit("profile must be a portable relative YAML file path")
+          PY
+
+      - name: Check out the exact target revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ inputs.target_ref }}
+          path: target
+          fetch-depth: 1
+          persist-credentials: false
+          show-progress: false
+
+      - name: Check out the exact pull-request base policy
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.event.pull_request.base.repo.full_name }}
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: policy
+          fetch-depth: 1
+          persist-credentials: false
+          show-progress: false
+
+      - name: Check out the exact Katydid platform revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: AmRitJain0442/katydid
+          ref: ${{ inputs.platform_ref }}
+          path: platform
+          fetch-depth: 1
+          persist-credentials: false
+          show-progress: false
+
+      - name: Verify checkout identities and profile containment
+        shell: bash
+        env:
+          KATYDID_BASE_REF: ${{ github.event.pull_request.base.sha || '' }}
+          KATYDID_EVENT_NAME: ${{ github.event_name }}
+          KATYDID_PLATFORM_REF: ${{ inputs.platform_ref }}
+          KATYDID_PROFILE: ${{ inputs.profile }}
+          KATYDID_TARGET_REF: ${{ inputs.target_ref }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import stat
+          import subprocess
+          from pathlib import Path
+
+          workspace = Path.cwd()
+          target = (workspace / "target").resolve(strict=True)
+          platform = (workspace / "platform").resolve(strict=True)
+
+          def head(directory: Path) -> str:
+              return subprocess.run(
+                  ["git", "rev-parse", "HEAD"],
+                  cwd=directory,
+                  check=True,
+                  capture_output=True,
+                  text=True,
+                  timeout=10,
+              ).stdout.strip()
+
+          if head(target) != os.environ["KATYDID_TARGET_REF"]:
+              raise SystemExit("target checkout does not match target_ref")
+          if head(platform) != os.environ["KATYDID_PLATFORM_REF"]:
+              raise SystemExit("platform checkout does not match platform_ref")
+
+          def profile_bytes(root: Path) -> bytes:
+              profile = root / os.environ["KATYDID_PROFILE"]
+              current = profile
+              while current != root:
+                  info = current.lstat()
+                  if stat.S_ISLNK(info.st_mode):
+                      raise SystemExit("profile path cannot contain symbolic links")
+                  current = current.parent
+              resolved = profile.resolve(strict=True)
+              if not resolved.is_relative_to(root) or not resolved.is_file():
+                  raise SystemExit("profile must be a regular file inside its checkout")
+              with resolved.open("rb") as stream:
+                  value = stream.read(1024 * 1024 + 1)
+              if len(value) > 1024 * 1024:
+                  raise SystemExit("profile cannot exceed 1 MiB")
+              return value
+
+          target_profile = profile_bytes(target)
+          if os.environ["KATYDID_EVENT_NAME"] == "pull_request":
+              policy = (workspace / "policy").resolve(strict=True)
+              if head(policy) != os.environ["KATYDID_BASE_REF"]:
+                  raise SystemExit("policy checkout does not match the pull-request base")
+              if profile_bytes(policy) != target_profile:
+                  raise SystemExit("pull requests cannot change the executed quality profile")
+          PY
+
+      - name: Install pinned uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.10"
+          enable-cache: true
+          cache-dependency-glob: platform/uv.lock
+
+      - name: Install the locked Katydid environment
+        shell: bash
+        run: uv sync --project platform --locked
+
+      - name: Verify the hosted toolchain
+        shell: bash
+        run: >-
+          uv run --project platform --locked python -c
+          "import platform; assert platform.python_version() == '3.12.13'"
+
+      - name: Run the selected stage
+        id: katydid
+        shell: bash
+        env:
+          KATYDID_PROFILE: ${{ inputs.profile }}
+          KATYDID_STAGE: ${{ inputs.stage }}
+        run: |
+          uv run --project platform --locked katydid run "target/$KATYDID_PROFILE" \
+            --stage "$KATYDID_STAGE" \
+            --root target \
+            --output "target/.katydid/ci/$KATYDID_STAGE"
+
+      - name: Upload Katydid evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: >-
+            katydid-${{ inputs.artifact_suffix }}-${{ inputs.stage }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/.katydid/ci/${{ inputs.stage }}/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7

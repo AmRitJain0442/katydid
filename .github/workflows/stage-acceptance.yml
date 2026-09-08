@@ -1,0 +1,36 @@
+name: Stage acceptance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stage-acceptance-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stage:
+    name: ${{ matrix.fixture.artifact }} / ${{ matrix.stage }}
+    strategy:
+      fail-fast: false
+      matrix:
+        stage: [pull-request, merge, nightly, release]
+        fixture:
+          - profile: examples/staged-service/quality.yaml
+            artifact: staged-service
+          - profile: examples/staged-library/quality.yaml
+            artifact: staged-library
+    uses: ./.github/workflows/reusable-checks.yml
+    with:
+      stage: ${{ matrix.stage }}
+      profile: ${{ matrix.fixture.profile }}
+      target_ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      platform_ref: ${{ github.sha }}
+      artifact_suffix: ${{ matrix.fixture.artifact }}
+    permissions:
+      contents: read

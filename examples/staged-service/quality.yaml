@@ -1,0 +1,32 @@
+schema_version: 1
+repository: staged-service
+owner: orchestration-team
+checks:
+  - id: pr-unit
+    kind: test
+    argv: ["{python}", "checks.py", "pull-request", "{report}"]
+    working_directory: examples/staged-service
+    timeout_seconds: 20
+    stages: [pull-request]
+    required: true
+  - id: merge-integration
+    kind: test
+    argv: ["{python}", "checks.py", "merge", "{report}"]
+    working_directory: examples/staged-service
+    timeout_seconds: 20
+    stages: [merge]
+    required: true
+  - id: nightly-regression
+    kind: test
+    argv: ["{python}", "checks.py", "nightly", "{report}"]
+    working_directory: examples/staged-service
+    timeout_seconds: 20
+    stages: [nightly]
+    required: true
+  - id: release-smoke
+    kind: test
+    argv: ["{python}", "checks.py", "release", "{report}"]
+    working_directory: examples/staged-service
+    timeout_seconds: 20
+    stages: [release]
+    required: true

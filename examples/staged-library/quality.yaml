@@ -1,0 +1,32 @@
+schema_version: 1
+repository: staged-library
+owner: orchestration-team
+checks:
+  - id: pr-api
+    kind: test
+    argv: ["{python}", "checks.py", "pull-request", "{report}"]
+    working_directory: examples/staged-library
+    timeout_seconds: 20
+    stages: [pull-request]
+    required: true
+  - id: merge-consumer
+    kind: test
+    argv: ["{python}", "checks.py", "merge", "{report}"]
+    working_directory: examples/staged-library
+    timeout_seconds: 20
+    stages: [merge]
+    required: true
+  - id: nightly-compatibility
+    kind: test
+    argv: ["{python}", "checks.py", "nightly", "{report}"]
+    working_directory: examples/staged-library
+    timeout_seconds: 20
+    stages: [nightly]
+    required: true
+  - id: release-import
+    kind: test
+    argv: ["{python}", "checks.py", "release", "{report}"]
+    working_directory: examples/staged-library
+    timeout_seconds: 20
+    stages: [release]
+    required: true
