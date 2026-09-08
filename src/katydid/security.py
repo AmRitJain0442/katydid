@@ -81,6 +81,7 @@ def _safe_token(value: Any, fallback: str = "unknown") -> str:
 def _safe_path(root: Path, value: Any) -> str:
     if not isinstance(value, str) or not value or "\x00" in value:
         return "unknown"
+    root = root.resolve()
     candidate = Path(value)
     if not candidate.is_absolute():
         candidate = root / candidate
@@ -120,6 +121,7 @@ def _local_file(root: Path, value: str, label: str) -> Path:
         or any(part in ("", ".", "..") for part in value.replace("\\", "/").split("/"))
     ):
         raise SecurityCheckError(f"{label} must be a relative file inside the scan root")
+    root = root.resolve()
     path = (root / value).resolve()
     try:
         mode = path.lstat().st_mode
@@ -596,6 +598,7 @@ def scan(
         temporary = Path(directory)
         snapshot = temporary / "source"
         snapshot.mkdir()
+        snapshot = snapshot.resolve()
         _tracked_snapshot(root, snapshot, includes or [])
         raw = temporary / "result.json"
         if scanner == "static":

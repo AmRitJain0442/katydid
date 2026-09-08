@@ -162,6 +162,21 @@ def test_scan_root_and_configs_cannot_escape(
         security._local_file(root, "..\\rules.yaml", "rules")
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows 8.3 path aliases are platform-specific")
+def test_local_file_canonicalizes_windows_short_path(tmp_path: Path) -> None:
+    import ctypes
+
+    root = tmp_path / "security-directory-with-a-long-name"
+    root.mkdir()
+    rules = root / "rules.yaml"
+    rules.write_text("rules: []\n", encoding="utf-8")
+    buffer = ctypes.create_unicode_buffer(32768)
+    length = ctypes.windll.kernel32.GetShortPathNameW(str(root), buffer, len(buffer))
+    if length == 0 or buffer.value.casefold() == str(root).casefold():
+        pytest.skip("8.3 short paths are unavailable on this volume")
+    assert security._local_file(Path(buffer.value), "rules.yaml", "rules") == rules.resolve()
+
+
 def test_snapshot_uses_tracked_files_and_requires_approved_new_files(tmp_path: Path) -> None:
     root = tmp_path / "repo"
     root.mkdir()
