@@ -1,0 +1,170 @@
+{
+  "date": "2026-09-08",
+  "platform_commit": "f71a32b",
+  "repository": "AmRitJain0442/katydid-orders-lab",
+  "task_id": "03fc6bc79ffc4dee934002f918c17bf5",
+  "state": "completed",
+  "outcome": "repaired",
+  "stage": "nightly",
+  "base_sha": "2d3afa385a5c094c2921d34c42d0c5e1b2d035c1",
+  "candidate_sha": "59cbcdd8cbae7db7d24efc2f5770525534e79380",
+  "merged_sha": "9b745d01affb7c6d9f7e5bcea2169bc298dea93f",
+  "merged_tree_equals_verified_candidate": true,
+  "changed_files": [
+    "orderlab/domain.py"
+  ],
+  "protected_tests_unchanged": true,
+  "pull_request": {
+    "head": "katydid/orders/03fc6bc79ffc-1",
+    "number": 1,
+    "url": "https://github.com/AmRitJain0442/katydid-orders-lab/pull/1"
+  },
+  "required_checks": [
+    "Core (ubuntu-24.04)",
+    "Core (windows-2022)",
+    "Browser"
+  ],
+  "github_checks": [
+    {
+      "name": "Core (ubuntu-24.04)",
+      "context": null,
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "state": null,
+      "detailsUrl": "https://github.com/AmRitJain0442/katydid-orders-lab/actions/runs/34218405690/job/102035534745"
+    },
+    {
+      "name": "Core (windows-2022)",
+      "context": null,
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "state": null,
+      "detailsUrl": "https://github.com/AmRitJain0442/katydid-orders-lab/actions/runs/34218405690/job/102035534397"
+    },
+    {
+      "name": "Browser",
+      "context": null,
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "state": null,
+      "detailsUrl": "https://github.com/AmRitJain0442/katydid-orders-lab/actions/runs/34218405690/job/102035534720"
+    },
+    {
+      "name": "GitGuardian Security Checks",
+      "context": null,
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "state": null,
+      "detailsUrl": "https://dashboard.gitguardian.com"
+    }
+  ],
+  "gates": {
+    "baseline": false,
+    "verification": true
+  },
+  "test_counts": {
+    "baseline": [
+      {
+        "check": "unit",
+        "detail": "JUnit records failed or errored tests",
+        "errors": 0,
+        "failures": 1,
+        "skipped": 0,
+        "status": "failed",
+        "tests": 11
+      },
+      {
+        "check": "api",
+        "detail": "JUnit contains passing executed tests",
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "status": "passed",
+        "tests": 5
+      }
+    ],
+    "verification": [
+      {
+        "check": "unit",
+        "detail": "JUnit contains passing executed tests",
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "check": "api",
+        "detail": "JUnit contains passing executed tests",
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "status": "passed",
+        "tests": 5
+      }
+    ]
+  },
+  "review": {
+    "approved": true,
+    "concerns": [],
+    "summary": "The repair correctly fixes the `line_total_cents` function in `orderlab/domain.py` to multiply `unit_price_cents` by `quantity`, as required by the `Requirements.md`. This resolves the specific defect identified in the problem description. The unit tests, which previously failed due to this defect, now pass, and no regressions were introduced in other tests."
+  },
+  "ai_receipts": [
+    {
+      "provider": "gemini",
+      "model": "gemini-2.5-flash",
+      "role": "diagnosis",
+      "call_id": "c771f18c4a744fa39b1f41fe7d829ca6",
+      "duration_seconds": 8.078,
+      "response_validated": true,
+      "usage": {
+        "prompt_token_count": 8225,
+        "candidates_token_count": 347,
+        "total_token_count": 9088,
+        "thoughts_token_count": 516
+      },
+      "request_ids": {
+        "response_id": "p-qfas6gKObRi9sPvtzDgAc"
+      },
+      "model_version": "gemini-2.5-flash"
+    },
+    {
+      "provider": "gemini",
+      "model": "gemini-2.5-flash",
+      "role": "repair",
+      "call_id": "7a7e07a6c385406f9d20384e9db3e0b0",
+      "duration_seconds": 6.671,
+      "response_validated": true,
+      "usage": {
+        "prompt_token_count": 8556,
+        "candidates_token_count": 755,
+        "total_token_count": 9414,
+        "thoughts_token_count": 103
+      },
+      "request_ids": {
+        "response_id": "r-qfapmKDubq8vUPyqaQQA"
+      },
+      "model_version": "gemini-2.5-flash"
+    },
+    {
+      "provider": "gemini",
+      "model": "gemini-2.5-flash",
+      "role": "review",
+      "call_id": "360b08138a9047e1972c014136556a96",
+      "duration_seconds": 7.328,
+      "response_validated": true,
+      "usage": {
+        "prompt_token_count": 8808,
+        "candidates_token_count": 102,
+        "total_token_count": 9572,
+        "thoughts_token_count": 662
+      },
+      "request_ids": {
+        "response_id": "u-qfaoLZO4u3i9sP7uehmQM"
+      },
+      "model_version": "gemini-2.5-flash"
+    }
+  ],
+  "total_reported_tokens": 28074,
+  "deployment_scope": "GitHub delivery followed by local application serving; no cloud deployment"
+}
