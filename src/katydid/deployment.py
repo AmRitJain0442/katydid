@@ -542,6 +542,8 @@ def _linux_identity(pid: int) -> dict[str, Any] | None:
 
 
 def _windows_identity(pid: int) -> dict[str, Any] | None:
+    if sys.platform != "win32":
+        _fail("Windows process inspection requires a Windows host")
     from ctypes import wintypes
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
