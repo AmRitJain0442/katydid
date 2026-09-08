@@ -44,6 +44,11 @@ select { text-overflow:ellipsis; }
 .state-dot[data-state="failed"]::before,.state-dot[data-state="error"]::before { background:var(--accent); }
 .rail-footer { margin-top:auto; padding:24px 10px 4px; display:flex; gap:10px; align-items:center; color:var(--muted); font-size:11px; }
 .rail-footer small { display:block; margin-top:2px; font-size:10px; color:var(--subtle); }
+.runtime-panel { margin:12px 4px 0; color:var(--muted); font-size:11px; }
+.runtime-panel summary { cursor:pointer; padding:8px 0; }
+#runtime-info { max-height:230px; overflow:auto; padding:10px; background:var(--ground); border-radius:8px; }
+#runtime-info p { margin:0 0 9px; }
+#runtime-info strong { display:block; color:var(--ink); font-size:11px; }
 .local-dot { background:var(--accent); }
 .workspace { display:flex; flex-direction:column; min-width:0; }
 .masthead { height:64px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 30px; border-bottom:1px solid var(--line); }

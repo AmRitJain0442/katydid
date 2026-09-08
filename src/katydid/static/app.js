@@ -30,6 +30,34 @@ let tasks = [];
 let selectedId = null;
 let noticeTimer = null;
 let renderedEvents = "";
+let renderedRuntime = "";
+
+async function loadRuntime() {
+  const panel = document.querySelector("#runtime-info");
+  try {
+    const { runtime } = await api("/api/runtime");
+    const signature = JSON.stringify(runtime);
+    if (signature === renderedRuntime) return;
+    renderedRuntime = signature;
+    panel.replaceChildren();
+    if (!runtime.managed) {
+      appendText(panel, "p", "Worker configuration is managed externally.");
+      return;
+    }
+    appendText(panel, "strong", runtime.worker_alive ? "Worker online" : "Worker stopped");
+    appendText(panel, "p", `${runtime.provider} · ${runtime.model}`);
+    appendText(panel, "p", runtime.watch ? `Watching every ${runtime.interval_seconds}s` : "Manual and event dispatch");
+    appendText(panel, "p", runtime.schedule_seconds ? `Scheduled checks every ${runtime.schedule_seconds}s` : "Scheduled checks disabled");
+    for (const repository of runtime.repositories || []) {
+      appendText(panel, "strong", repository.id);
+      appendText(panel, "p", Object.keys(repository.required_checks || {}).join(" · "));
+      appendText(panel, "p", `${repository.delivery} delivery · ${repository.auto_merge ? "automatic merge" : "merge disabled"}`);
+    }
+  } catch {
+    renderedRuntime = "";
+    panel.textContent = "Runtime status unavailable.";
+  }
+}
 
 function safeText(value, fallback = "—") {
   if (value === null || value === undefined || value === "") return fallback;
@@ -288,8 +316,10 @@ ui.steerForm.addEventListener("submit", async (event) => {
 
 ui.refresh.addEventListener("click", () => loadTasks());
 window.setInterval(() => loadTasks(true), 4000);
+window.setInterval(loadRuntime, 4000);
 window.setInterval(() => { ui.clock.textContent = new Date().toLocaleTimeString([], { hour12: false }); }, 1000);
 ui.clock.textContent = new Date().toLocaleTimeString([], { hour12: false });
 
 loadRepositories();
 loadTasks();
+loadRuntime();

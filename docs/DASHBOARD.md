@@ -32,6 +32,11 @@ The enqueue callback has the signature `enqueue(repository: str) -> dict`. Repos
 
 ## HTTP contract
 
+- `GET /api/runtime` reports the managed worker's liveness, selected provider/model,
+  discovery/schedule configuration, and centrally required repository checks. It
+  excludes credentials, project identifiers, environment values, and host paths.
+  Embedded dashboards without a runtime callback report `managed: false`.
+
 - `GET /api/repositories` returns `{"repositories": [...]}`.
 - `GET /api/tasks` returns `{"tasks": [...]}`.
 - `GET /api/tasks/{id}` returns `{"task": {...}}`.

@@ -233,17 +233,44 @@ def handle(args: argparse.Namespace) -> int:
         if args.command == "worker":
             work()
             return 0
+
+        def runtime_status() -> dict[str, Any]:
+            return {
+                "managed": True,
+                "worker_alive": thread.is_alive(),
+                "provider": controller.config.ai.provider,
+                "model": controller.config.ai.model,
+                "watch": args.watch,
+                "interval_seconds": args.interval,
+                "schedule_seconds": args.schedule_seconds,
+                "repositories": [
+                    {
+                        "id": repo.id,
+                        "profile": repo.profile,
+                        "required_checks": repo.required_checks,
+                        "required_checks_by_stage": repo.required_checks_by_stage,
+                        "delivery": repo.delivery.mode,
+                        "auto_merge": repo.delivery.auto_merge,
+                        "release_configured": repo.release is not None,
+                        "isolation_required": repo.isolation_policy is not None
+                        and repo.isolation_policy.required,
+                    }
+                    for repo in controller.config.repositories
+                ],
+            }
+
         server = make_server(
             controller.store,
             [repo.id for repo in controller.config.repositories],
             controller.enqueue,
             args.host,
             args.port,
+            runtime=runtime_status,
         )
         server.timeout = 0.25
         thread = threading.Thread(target=work, daemon=True, name="katydid-worker")
         thread.start()
-        print(f"Katydid dashboard: http://{args.host}:{server.server_port}", flush=True)
+        print(f"Vultron dashboard: http://{args.host}:{server.server_port}", flush=True)
         try:
             while not stop.is_set():
                 server.handle_request()

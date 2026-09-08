@@ -51,7 +51,7 @@ class FakeStore:
 
 
 @contextmanager
-def running_dashboard():
+def running_dashboard(runtime=None):
     store = FakeStore()
 
     def enqueue(repository):
@@ -60,7 +60,7 @@ def running_dashboard():
         store.event_rows[task["id"]] = []
         return dict(task)
 
-    server = make_server(store, ["demo", "sample"], enqueue, port=0)
+    server = make_server(store, ["demo", "sample"], enqueue, port=0, runtime=runtime)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -96,6 +96,22 @@ def mutation_headers(port, **extra):
         "Origin": f"http://127.0.0.1:{port}",
         **extra,
     }
+
+
+def test_runtime_reports_live_callback_and_unmanaged_default():
+    with running_dashboard() as (_, port):
+        status, _, payload = request(port, "GET", "/api/runtime")
+        assert status == 200
+        assert payload == {"runtime": {"managed": False}}
+    state = {"managed": True, "worker_alive": True, "watch": True}
+    with running_dashboard(lambda: dict(state)) as (_, port):
+        assert request(port, "GET", "/api/runtime")[2]["runtime"]["worker_alive"]
+        state["worker_alive"] = False
+        assert not request(port, "GET", "/api/runtime")[2]["runtime"]["worker_alive"]
+        status, _, _ = request(
+            port, "GET", "/api/runtime", headers={"Origin": "https://external.invalid"}
+        )
+        assert status == 403
 
 
 def test_dashboard_assets_are_local_and_hardened():

@@ -56,10 +56,12 @@ class DashboardServer(ThreadingHTTPServer):
         store: Store,
         repositories: tuple[str, ...],
         enqueue: Callable[[str], dict[str, Any]],
+        runtime: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         self.store = store
         self.repositories = repositories
         self.enqueue = enqueue
+        self.runtime = runtime
         try:
             if ipaddress.ip_address(address[0]).version == 6:
                 self.address_family = socket.AF_INET6
@@ -265,6 +267,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_bytes(HTTPStatus.OK, body, content_type)
             return
         try:
+            if path == "/api/runtime":
+                value = self.server.runtime() if self.server.runtime else {"managed": False}
+                self._send_json(HTTPStatus.OK, {"runtime": value})
+                return
             if path == "/api/repositories":
                 self._send_json(HTTPStatus.OK, {"repositories": self.server.repositories})
                 return
@@ -358,6 +364,8 @@ def make_server(
     enqueue: Callable[[str], dict[str, Any]],
     host: str = "127.0.0.1",
     port: int = 8765,
+    *,
+    runtime: Callable[[], dict[str, Any]] | None = None,
 ) -> ThreadingHTTPServer:
     """Create a loopback dashboard server; the caller owns serving and shutdown."""
     if not _loopback_hostname(host):
@@ -370,4 +378,4 @@ def make_server(
         or len(set(repositories)) != len(repositories)
     ):
         raise ValueError("Repositories must be a non-empty list of unique names")
-    return DashboardServer((host, port), store, tuple(repositories), enqueue)
+    return DashboardServer((host, port), store, tuple(repositories), enqueue, runtime)
