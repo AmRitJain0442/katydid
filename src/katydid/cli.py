@@ -2,7 +2,9 @@
 
 import argparse
 import json
+import re
 import signal
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -11,6 +13,31 @@ from katydid import __version__
 from katydid.profile import ProfileError, make_plan
 from katydid.runner import run_plan
 from katydid.service import add_commands, handle
+
+
+def _sweep(namespace: str, watch: bool, interval: int) -> int:
+    from katydid.docker import sweep
+
+    if re.fullmatch(r"[a-z][a-z0-9-]{0,63}", namespace) is None or not 1 <= interval <= 3600:
+        raise ValueError("Sweep needs a valid namespace and an interval from 1 to 3600 seconds")
+    stop = threading.Event()
+    previous = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
+    for sig in previous:
+        signal.signal(sig, lambda _sig, _frame: stop.set())
+    try:
+        while not stop.is_set():
+            try:
+                result = sweep(namespace)
+            except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                result = {"removed": [], "skipped": [], "errors": [str(exc)]}
+            print(json.dumps(result), flush=True)
+            if not watch:
+                return 1 if result["errors"] else 0
+            stop.wait(interval)
+        return 0
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -28,9 +55,15 @@ def main(argv: list[str] | None = None) -> int:
             command.add_argument("--output", type=Path, help="Parent directory for unique runs")
     cancel_command = subparsers.add_parser("cancel", help="Request cancellation of a local run")
     cancel_command.add_argument("run_directory", type=Path)
+    sweep_command = subparsers.add_parser("sweep", help="Remove expired owned Docker containers")
+    sweep_command.add_argument("--namespace", required=True)
+    sweep_command.add_argument("--watch", action="store_true")
+    sweep_command.add_argument("--interval", type=int, default=30)
     add_commands(subparsers)
     args = parser.parse_args(argv)
     try:
+        if args.command == "sweep":
+            return _sweep(args.namespace, args.watch, args.interval)
         if args.command in ("fleet", "doctor", "task", "worker", "serve", "demo"):
             return handle(args)
         if args.command == "cancel":

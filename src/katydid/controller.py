@@ -60,6 +60,7 @@ def _evidence(run: Run) -> dict[str, Any]:
         "results": [asdict(result) for result in run.results],
         "log_tails": logs,
         "environment": asdict(run.environment) if run.environment else None,
+        "isolation": run.isolation,
     }
 
 
@@ -357,6 +358,12 @@ class Controller:
 
     @staticmethod
     def _ensure_environment(run: Run) -> None:
+        if run.isolation is not None and (
+            not run.isolation["ready"]
+            or not run.isolation["cleanup_complete"]
+            or run.isolation["errors"]
+        ):
+            raise ControllerError("Docker isolation failed; refusing application AI repair")
         if run.environment is not None and (
             not run.environment.ready or not run.environment.cleanup_complete
         ):
