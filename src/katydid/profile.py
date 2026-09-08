@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import stat
 from dataclasses import asdict, dataclass
 from pathlib import Path, PureWindowsPath
 from typing import Annotated, Any, Literal
@@ -13,6 +14,66 @@ from yaml.nodes import MappingNode
 Stage = Literal["pull-request", "merge", "nightly"]
 Identifier = Annotated[str, Field(pattern=r"^[a-z][a-z0-9-]{0,63}$")]
 MAX_PROFILE_BYTES = 1024 * 1024
+ImageDigest = Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9._:/-]*@sha256:[a-f0-9]{64}$")]
+
+
+def isolation_file(value: str) -> str:
+    """An explicit source path is not a grant to copy host configuration or credentials."""
+    parts = value.split("/")
+    windows = PureWindowsPath(value)
+    sensitive = {".git", ".ssh", ".aws", ".azure", ".docker", ".codex", ".netrc", ".npmrc"}
+    if (
+        not value
+        or "\\" in value
+        or "\x00" in value
+        or windows.drive
+        or windows.root
+        or any(part in ("", ".", "..") for part in parts)
+        or any(part.endswith((" ", ".")) or PureWindowsPath(part).is_reserved() for part in parts)
+        or any(character in ':*?<>|"' or ord(character) < 32 for character in value)
+        or any(part.lower() in sensitive or part.lower().startswith(".env") for part in parts)
+        or windows.suffix.lower() in (".pem", ".key", ".p12", ".pfx")
+    ):
+        raise ValueError(f"Expected an explicit nonsensitive source file: {value}")
+    return value
+
+
+def isolated_source(root: Path, value: str) -> Path:
+    isolation_file(value)
+    target = root / value
+    for part in (target, *target.parents):
+        if part == root:
+            break
+        info = part.lstat()
+        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & getattr(
+            stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0
+        ):
+            raise ProfileError(f"Isolation source cannot contain links or reparse points: {value}")
+    if not target.resolve().is_relative_to(root) or not target.is_file():
+        raise ProfileError(f"Isolation source must be a regular file within the root: {value}")
+    return target
+
+
+class Isolation(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    adapter: Literal["docker"]
+    image: ImageDigest
+    files: list[str] = Field(min_length=1, max_length=500)
+    namespace: Identifier = "katydid"
+    cpus: float = Field(default=1.0, ge=0.1, le=8)
+    memory_mb: int = Field(default=512, ge=64, le=8192)
+    pids_limit: int = Field(default=128, ge=16, le=1024)
+    tmpfs_mb: int = Field(default=64, ge=16, le=1024)
+
+    @field_validator("files")
+    @classmethod
+    def source_files(cls, value: list[str]) -> list[str]:
+        for path in value:
+            isolation_file(path)
+        if len({path.casefold() for path in value}) != len(value):
+            raise ValueError("Isolation source paths cannot repeat or differ only in case")
+        return value
 
 
 class ProfileError(ValueError):
@@ -113,6 +174,7 @@ class Profile(BaseModel):
     owner: str = Field(min_length=1, max_length=200)
     checks: list[Check] = Field(min_length=1, max_length=100)
     environment: Environment | None = None
+    isolation: Isolation | None = None
 
     @field_validator("schema_version", mode="before")
     @classmethod
@@ -162,6 +224,18 @@ class PlannedEnvironment:
 
 
 @dataclass(frozen=True)
+class PlannedIsolation:
+    image: str
+    files: tuple[str, ...]
+    namespace: str = "katydid"
+    cpus: float = 1.0
+    memory_mb: int = 512
+    pids_limit: int = 128
+    tmpfs_mb: int = 64
+    adapter: str = "docker"
+
+
+@dataclass(frozen=True)
 class Plan:
     schema_version: int
     repository: str
@@ -173,6 +247,7 @@ class Plan:
     checks: tuple[PlannedCheck, ...]
     excluded: tuple[str, ...]
     environment: PlannedEnvironment | None = None
+    isolation: PlannedIsolation | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -205,6 +280,16 @@ def make_plan(path: Path, stage: Stage, root: Path | None = None) -> Plan:
     base = (root or path.parent).resolve()
     if not base.is_dir():
         raise ProfileError(f"Repository root is not a directory: {base}")
+    isolation = None
+    if profile.isolation is not None:
+        isolation = PlannedIsolation(
+            **{**profile.isolation.model_dump(), "files": tuple(profile.isolation.files)}
+        )
+        try:
+            for filename in isolation.files:
+                isolated_source(base, filename)
+        except OSError as exc:
+            raise ProfileError(f"Cannot resolve isolation source: {exc}") from exc
     checks: list[PlannedCheck] = []
     excluded: list[str] = []
 
@@ -214,6 +299,9 @@ def make_plan(path: Path, stage: Stage, root: Path | None = None) -> Plan:
             raise ProfileError(f"Check {check.id}: working directory must exist within {base}")
         if profile.environment is None and any("{environment}" in arg for arg in check.argv):
             raise ProfileError("{environment} requires an environment lifecycle")
+        if isolation is not None and working_directory != base:
+            if not any((base / name).is_relative_to(working_directory) for name in isolation.files):
+                raise ProfileError(f"Check {check.id}: working directory is absent from snapshot")
         return PlannedCheck(
             check.id,
             check.kind,
@@ -261,4 +349,5 @@ def make_plan(path: Path, stage: Stage, root: Path | None = None) -> Plan:
         tuple(checks),
         tuple(excluded),
         environment,
+        isolation,
     )

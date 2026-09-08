@@ -7,7 +7,15 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from katydid.profile import Check, Identifier, Plan, ProfileError, UniqueSafeLoader
+from katydid.profile import (
+    Check,
+    Identifier,
+    ImageDigest,
+    Isolation,
+    Plan,
+    ProfileError,
+    UniqueSafeLoader,
+)
 
 
 def relative_file(value: str) -> str:
@@ -75,6 +83,23 @@ class ReleaseConfig(BaseModel):
         return self
 
 
+class IsolationPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    required: bool = True
+    images: list[ImageDigest] = Field(min_length=1, max_length=50)
+    files: list[str] = Field(min_length=1, max_length=500)
+    namespace: Identifier = "katydid"
+    max_cpus: float = Field(default=1.0, ge=0.1, le=8)
+    max_memory_mb: int = Field(default=512, ge=64, le=8192)
+    max_pids: int = Field(default=128, ge=16, le=1024)
+    max_tmpfs_mb: int = Field(default=64, ge=16, le=1024)
+
+    @field_validator("files")
+    @classmethod
+    def source_files(cls, value: list[str]) -> list[str]:
+        return Isolation.source_files(value)
+
+
 class RepositoryConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
     id: Identifier
@@ -88,6 +113,7 @@ class RepositoryConfig(BaseModel):
     repair_attempts: int = Field(default=2, ge=1, le=5)
     delivery: DeliveryConfig = Field(default_factory=DeliveryConfig)
     release: ReleaseConfig | None = None
+    isolation_policy: IsolationPolicy | None = None
 
     @field_validator("profile")
     @classmethod
@@ -190,6 +216,25 @@ def load_fleet(path: Path) -> tuple[FleetConfig, str]:
 
 
 def enforce_policy(repository: RepositoryConfig, plan: Plan) -> None:
+    isolation_policy = repository.isolation_policy
+    if isolation_policy is not None:
+        isolation = plan.isolation
+        if isolation is None:
+            if isolation_policy.required:
+                raise ProfileError("Central policy requires Docker isolation")
+        elif (
+            isolation.adapter != "docker"
+            or isolation.image not in isolation_policy.images
+            or not set(isolation.files).issubset(isolation_policy.files)
+            or isolation.namespace != isolation_policy.namespace
+            or isolation.cpus > isolation_policy.max_cpus
+            or isolation.memory_mb > isolation_policy.max_memory_mb
+            or isolation.pids_limit > isolation_policy.max_pids
+            or isolation.tmpfs_mb > isolation_policy.max_tmpfs_mb
+        ):
+            raise ProfileError(
+                "Isolation exceeds central image, source, namespace, or resource policy"
+            )
     selected = {check.id: check for check in plan.checks}
     for check_id, kind in repository.required_checks.items():
         check = selected.get(check_id)

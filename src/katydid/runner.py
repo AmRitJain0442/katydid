@@ -1,7 +1,7 @@
-"""Trusted local execution with fresh evidence, timeouts, and cooperative cancellation.
+"""Profile execution with fresh evidence, timeouts, and cooperative cancellation.
 
-This adapter is not a sandbox. Commands must remain foreground processes and await
-their children; detached daemons need a future supervised environment adapter.
+The default local adapter trusts repository commands. Optional Docker execution
+provides the separately documented container boundary.
 """
 
 import hashlib
@@ -38,6 +38,7 @@ class Run:
     gate: Gate
     cancelled: bool
     environment: EnvironmentResult | None = None
+    isolation: dict[str, Any] | None = None
 
 
 def _write_json(path: Path, value: Any) -> None:
@@ -238,6 +239,11 @@ def run_plan(
     cancel_file = directory / "cancel.request"
     results: list[CheckResult] = []
     session: EnvironmentSession | None = None
+    docker_session = None
+    if plan.isolation is not None:
+        from katydid.docker import DockerSession
+
+        docker_session = DockerSession(plan, directory, run_id, _write_json)
     execution_error: str | None = None
     metadata = {
         "schema_version": 1,
@@ -262,6 +268,13 @@ def run_plan(
                 reasons.append("Environment cleanup is incomplete or failed")
         if execution_error is not None:
             reasons.append(execution_error)
+        if docker_session is not None:
+            isolation_state = docker_session.snapshot()
+            if not isolation_state["ready"]:
+                reasons.append("Docker isolation preparation did not succeed")
+            if not isolation_state["cleanup_complete"]:
+                reasons.append("Docker container cleanup is incomplete or failed")
+            reasons.extend(isolation_state["errors"])
         gate = Gate(not reasons, tuple(reasons), gate.advisories)
         if state != "completed":
             gate = Gate(False, (*gate.reasons, f"Run is {state}"), gate.advisories)
@@ -274,10 +287,22 @@ def run_plan(
                 "results": [asdict(result) for result in results],
                 "gate": asdict(gate),
                 "environment": asdict(session.snapshot()) if session else None,
+                "isolation": docker_session.snapshot() if docker_session else None,
                 "execution_error": execution_error,
             },
         )
         return gate
+
+    def execute_check(
+        check: PlannedCheck,
+        folder: Path,
+        interrupted: threading.Event,
+        marker: Path,
+        environment_directory: Path | None,
+    ) -> CheckResult:
+        if docker_session is not None:
+            return docker_session.execute(check, folder, interrupted, marker, environment_directory)
+        return _execute(check, plan, folder, run_id, interrupted, marker, environment_directory)
 
     if plan.environment is not None:
         environment_directory = directory / "environment" / "data"
@@ -285,7 +310,7 @@ def run_plan(
         def lifecycle_check(
             check: PlannedCheck, folder: Path, interrupted: threading.Event, marker: Path
         ) -> CheckResult:
-            return _execute(check, plan, folder, run_id, interrupted, marker, environment_directory)
+            return execute_check(check, folder, interrupted, marker, environment_directory)
 
         def lifecycle_checkpoint() -> None:
             checkpoint("running")
@@ -301,6 +326,9 @@ def run_plan(
         checkpoint("running")
         if on_start is not None:
             on_start(directory)
+        if docker_session is not None and not cancel.is_set() and not cancel_file.exists():
+            docker_session.prepare()
+            checkpoint("running")
         ready = session.prepare(cancel, cancel_file) if session else True
         for index, check in enumerate(plan.checks):
             if cancel.is_set() or cancel_file.exists():
@@ -319,11 +347,9 @@ def run_plan(
             else:
                 folder = directory / f"{index:03d}-{check.id}"
                 folder.mkdir()
-                result = _execute(
+                result = execute_check(
                     check,
-                    plan,
                     folder,
-                    run_id,
                     cancel,
                     cancel_file,
                     session.data if session else None,
@@ -339,8 +365,12 @@ def run_plan(
         raise
     finally:
         try:
-            if session is not None:
-                session.cleanup()
+            try:
+                if session is not None:
+                    session.cleanup()
+            finally:
+                if docker_session is not None:
+                    docker_session.cleanup()
         except BaseException as exc:
             cleanup_error = f"Cleanup aborted: {type(exc).__name__}: {exc}"
             execution_error = (
@@ -351,5 +381,11 @@ def run_plan(
             cancelled = cancel.is_set() or cancel_file.exists()
             gate = checkpoint("cancelled" if cancelled else "completed")
     return Run(
-        run_id, directory, tuple(results), gate, cancelled, session.snapshot() if session else None
+        run_id,
+        directory,
+        tuple(results),
+        gate,
+        cancelled,
+        session.snapshot() if session else None,
+        docker_session.snapshot() if docker_session else None,
     )
