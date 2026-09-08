@@ -66,7 +66,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "sweep":
             return _sweep(args.namespace, args.watch, args.interval)
-        if args.command in ("fleet", "doctor", "task", "worker", "serve", "demo", "webhook"):
+        if args.command in (
+            "fleet",
+            "doctor",
+            "task",
+            "worker",
+            "serve",
+            "demo",
+            "webhook",
+            "onboard",
+        ):
             return handle(args)
         if args.command == "cancel":
             summary = args.run_directory / "run.json"

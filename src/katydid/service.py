@@ -20,6 +20,14 @@ from katydid.fleet import load_fleet
 
 
 def add_commands(subparsers: Any) -> None:
+    onboarding = subparsers.add_parser(
+        "onboard", help="Inspect a repository and prepare registration"
+    )
+    onboarding.add_argument("source")
+    onboarding.add_argument("destination", type=Path)
+    onboarding.add_argument("--repository-id")
+    onboarding.add_argument("--owner", default="unassigned")
+    onboarding.add_argument("--base-branch")
     fleet = subparsers.add_parser("fleet", help="Validate the central repository registry")
     fleet.add_argument("file", type=Path)
     doctor = subparsers.add_parser("doctor", help="Check local tools and AI authentication")
@@ -120,6 +128,18 @@ def doctor(fleet: Path) -> int:
 def handle(args: argparse.Namespace) -> int:
     value: Any
     result: Any
+    if args.command == "onboard":
+        from katydid.onboarding import onboard
+
+        result = onboard(
+            args.source,
+            args.destination,
+            repository_id=args.repository_id,
+            owner=args.owner,
+            base_branch=args.base_branch,
+        )
+        _print(result.to_dict())
+        return 0
     if args.command == "fleet":
         config, digest = load_fleet(args.file)
         _print(
