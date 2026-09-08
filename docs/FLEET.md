@@ -4,6 +4,11 @@ A fleet file is the operator-owned boundary between a registered repository and 
 
 The loader accepts strict YAML with a maximum size of 1 MiB. Unknown fields, duplicate keys, aliases, anchors, invalid types, and unsafe tags are rejected. Relative source and state paths resolve from the fleet file's directory.
 
+Repositories may additionally declare an `isolation_policy` requiring Docker execution with an
+approved image, source-file subset, namespace, and resource ceilings. See the complete
+[isolation policy reference](ISOLATION.md#central-fleet-enforcement). This policy governs test and
+environment-hook execution; registered delivery/release operations retain their trusted-host model.
+
 ## Complete example
 
 ```yaml

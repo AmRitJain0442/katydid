@@ -156,3 +156,8 @@ A hard-killed process or host cannot execute in-process cleanup. The run remains
 its last checkpoint and ownership evidence, but automatic expiry reconciliation and an independent
 sweeper are future provider-specific work. This local lifecycle does not claim container, cloud,
 credential, network, or tenant isolation.
+
+Profiles can now select [Docker isolation](ISOLATION.md) around this lifecycle. Its independent
+sweeper removes expired owned containers after runner loss. It does not execute skipped application
+cleanup hooks or delete retained host data, and it does not manage cloud resources or other providers.
+Commands in that adapter are offline, with fresh containers and shared run-owned data between hooks.

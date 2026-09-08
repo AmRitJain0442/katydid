@@ -4,7 +4,7 @@ Autonomous repository testing, AI repair, and verified delivery.
 
 Katydid manages registered Git repositories through their existing test commands. It runs checks in separate clones, diagnoses failures with a real AI backend, applies narrowly permitted repairs, retests, obtains independent AI review, and publishes or merges eligible changes. Configured releases include health checks and rollback. A durable queue and localhost dashboard let an operator pause, cancel, resume, or steer work.
 
-**Implemented:** the end-to-end single-host workflow, including authenticated Codex integration, local and GitHub delivery, scheduled discovery, release hooks, and per-run preparation/readiness/cleanup. Red teaming remains deferred. Separate clones execute trusted code with the host's permissions; this release does not provide a container sandbox or distributed, multi-tenant hosting.
+**Implemented:** the end-to-end single-host workflow, including authenticated Codex integration, local and GitHub delivery, scheduled discovery, release hooks, and per-run preparation/readiness/cleanup. Optional Linux Docker execution restricts source files, credentials, networking, and resources; an independent sweeper removes expired owned containers. Default local execution and release hooks remain trusted-host operations. Distributed hosting and autonomous red-team campaigns remain future work.
 
 ## Run it
 
@@ -64,6 +64,7 @@ Central registration grants standing authority once. Ordinary tasks proceed with
 | [Dashboard](docs/DASHBOARD.md) | Local HTTP interface and request controls |
 | [Playwright example](docs/BROWSER.md) | Browser testing through the same evidence contract |
 | [Run environments](docs/ENVIRONMENTS.md) | Ordered preparation, bounded readiness, cleanup, and a real SQLite example |
+| [Container isolation](docs/ISOLATION.md) | Offline Docker execution, central isolation policy, and independent expiry sweeping |
 | [Live acceptance](docs/LIVE_ACCEPTANCE.md) | Recorded model, GitHub, deployment, and rollback evidence |
 | [Implementation record](docs/IMPLEMENTATION.md) | Microcommit slices and validation |
 | [Full platform blueprint](AUTOMATED_TESTING_PLATFORM_BLUEPRINT.md) | Detailed tool arsenal and broader architecture; proposed features are not implementation claims |

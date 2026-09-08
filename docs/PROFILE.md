@@ -27,6 +27,7 @@ The profile's parent is the repository root unless `--root` selects another dire
 | `owner` | Nonblank ownership label, at most 200 characters |
 | `checks` | 1–100 checks with unique identifiers |
 | `environment` | Optional ordered preparation, bounded readiness, and mandatory cleanup; see [Environments](ENVIRONMENTS.md) |
+| `isolation` | Optional Docker execution with an approved image digest, explicit source files, and resource bounds; see [Isolation](ISOLATION.md) |
 | `checks[].id` | Same identifier syntax as repository |
 | `kind` | `command` for an exit-code check; `test` for mandatory JUnit evidence |
 | `argv` | Nonempty list of strings; no implicit shell or environment expansion |

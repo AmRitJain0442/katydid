@@ -15,7 +15,7 @@ Katydid is a Python CLI, durable single-host controller, and localhost dashboard
 | Source | `src/katydid/` | Installable package and CLI |
 | Generated run evidence | `.katydid/`, ignored by Git | Local reports and logs |
 
-Windows and Linux are the initial validation targets. macOS support is not yet verified. Docker, a database server, GitHub credentials, and AI API keys are not required for local development.
+Windows and Linux are the initial validation targets. macOS support is not yet verified. Core development does not require Docker, a database server, GitHub credentials, or AI API keys. The opt-in container suite requires a local Linux Docker engine and the explicitly pinned test image; the dedicated Ubuntu CI job supplies both.
 
 ## Setup and commands
 
@@ -44,6 +44,22 @@ Run `python scripts/dev.py cli run katydid.yaml` for the complete local quality 
 Third-party actions are pinned to full commit hashes, checkout does not persist credentials, and workflow permissions are read-only. CI does not deploy or invoke an AI service. `verify` jobs report outcomes but this change does not configure repository branch protection or enable auto-merge.
 
 Separate browser jobs install the committed npm lockfile and Chromium, then run both `examples/browser-service/quality.yaml` and `tests/browser/quality.yaml` through Katydid. The latter starts a real temporary fleet/controller and exercises dashboard interruption and worker completion. Browser traces, screenshots on failure, and JUnit evidence are retained for seven days. See [browser setup](BROWSER.md).
+
+A separate container job runs real isolation and crash-recovery checks plus the offline example.
+To run those checks locally in PowerShell, use the existing locked virtual environment:
+
+```powershell
+$env:KATYDID_DOCKER_IMAGE = 'python@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36'
+docker pull $env:KATYDID_DOCKER_IMAGE
+python scripts/dev.py test tests/test_docker_integration.py -v
+python scripts/dev.py cli run examples/isolated-python/quality.yaml
+Remove-Item Env:KATYDID_DOCKER_IMAGE
+```
+
+The integration suite skips only when its opt-in variable is absent. When set, missing Docker or
+the image is a failure. Image acquisition happens explicitly on the operator/CI host; a task never
+downloads an image or silently changes execution adapters. See [the isolation guide](ISOLATION.md)
+for the independent sweeper and central policy.
 
 To deliberately update dependencies, use `uvx --from uv==0.12.10 uv lock --upgrade-package PACKAGE`, inspect the lockfile change, and run the relevant checks. Ordinary setup uses `--locked` and must not silently rewrite the lock.
 

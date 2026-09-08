@@ -64,3 +64,12 @@ Checks poll every 50 ms. Timeout and cancellation termination use process groups
 - Only declared readiness probes retry automatically in this adapter. Fleet policy and bounded AI repair apply through the controller; remote sandboxes, credential filtering, and trusted artifact signing remain future work.
 
 These limits are explicit acceptance boundaries for this first local adapter, not capabilities implied by the longer-term blueprint.
+
+## Optional container execution
+
+An `isolation` profile routes every check and environment hook through the [Docker adapter](ISOLATION.md).
+Container checks receive mapped paths, their own writable `output/` directory, and optional shared
+run data. The host writes logs and checkpoints outside the container's writable mounts. `run.json`
+adds isolation readiness, resource, removal, and error evidence. A container infrastructure failure
+blocks the gate and AI application repair even when an individual check reports success. The default
+local adapter's trust model above still applies to profiles without isolation and to release hooks.

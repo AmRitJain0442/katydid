@@ -45,3 +45,25 @@ live process and an available Docker daemon; it cannot remove resources while th
 3. Add scoped sweeping and real crash/containment acceptance.
 4. Enforce fleet isolation policy and controller failure handling.
 5. Add runnable fixtures, CI, and operating documentation with actual acceptance evidence.
+
+## Local acceptance — 2026-09-08
+
+- Full Katydid quality run `f85dfb67ee0e4cba84c13e7b61527d54` passed lint, formatting,
+  strict mypy, and pytest: **322 passed, 10 skipped** in 118.86 seconds. Five skips are the
+  separately invoked Docker suite; five require unavailable Windows symlink/FIFO capabilities.
+- The opt-in real Docker suite passed **all five tests** in 25.63 seconds on Windows 11 with
+  Docker Desktop's Linux engine 27.5.1 and the example's immutable Python image. It exercises
+  containment, fresh repaired-source verification, cancellation, detached-child timeout cleanup,
+  and independent sweeping after a runner is forcibly terminated, including unrelated decoys.
+- The controller acceptance uses a deterministic AI provider with real Git and Docker operations.
+  It proves the isolation integration around the existing AI interface; it is not a new live model
+  acceptance. Earlier real Codex acceptance remains documented in [LIVE_ACCEPTANCE.md](LIVE_ACCEPTANCE.md).
+- Example run `28c39f3381e44be6a65cf8016989ede8` passed all four business/containment cases and
+  preparation/readiness/cleanup, with all four owned containers removed. No managed containers
+  remained after acceptance. Both source distribution and wheel built successfully.
+- Microcommits `cec0dd0`, `5bcbd66`, and `7ce17ce` implement the container/policy boundary,
+  failure handling and sweeping, and real acceptance/example/CI respectively. Hosted CI adds a
+  dedicated Ubuntu Docker job alongside both existing core and browser operating-system jobs.
+
+Raw run evidence stays in ignored `.katydid` directories. An independent sweeper must be operated
+as a separate live process; these tests do not install an operating-system startup service.

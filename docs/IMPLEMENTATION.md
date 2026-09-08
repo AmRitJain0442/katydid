@@ -78,9 +78,31 @@ data, verifies three business cases, rejects foreign run identities, and removes
 Both core CI jobs execute that example and retain lifecycle evidence. The [environment guide](ENVIRONMENTS.md)
 documents the schema, flow, retry bounds, ownership checks, and failure handling.
 
-This completes the local lifecycle increment. Containers, external resource expiry/sweeping,
-cloud/device provisioning, and network/credential isolation remain unimplemented; Phase 1's
-broader environment capability remains partial.
+This completed the local lifecycle increment. Its acceptance did not include containers or
+independent sweeping; the next increment below extends those boundaries. Phase 1's broader
+environment capability remains partial.
+
+## Sequential improvement: container isolation and crash cleanup
+
+The [isolation contract](ISOLATION_PLAN.md) adds explicit Linux Docker profiles and central policy
+for approved images, source paths, namespaces, and resource ceilings. Every check and lifecycle hook
+uses a fresh offline, non-root container with a read-only source snapshot and root filesystem,
+dropped capabilities, no host credential forwarding, and CPU/memory/process/tmpfs bounds. Only
+the check's output and optional run-owned data are writable host mounts.
+
+The adapter records container identities and fixed expiries, removes containers after normal or
+interrupted execution, and verifies disposal. A separate `sweep` process reconciles expired owned
+containers without pruning unrelated resources or host evidence. Container infrastructure failures
+block the gate and application AI repair. Local profiles and release hooks keep their prior trust model.
+
+Deterministic policy/runner tests and real Docker acceptance cover containment and recovery; the
+offline example exercises preparation, readiness, business checks, and cleanup without downloading
+dependencies during execution. The dedicated Ubuntu CI job runs the real Docker suite; ordinary
+Windows/Linux core and Chromium checks remain separate. See [the operator guide](ISOLATION.md).
+
+Remaining work includes multi-container service networks, cloud/device provisioning, temporary
+external credentials, VM boundaries for hostile workloads, host evidence quotas, and autonomous
+security campaigns. An independent sweeper must remain running and have access to the Docker daemon.
 
 ## Overall verification and remaining boundaries
 
