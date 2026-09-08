@@ -13,6 +13,7 @@ import re
 import secrets
 import stat
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -69,7 +70,7 @@ def _docker_run(
 
 def _docker_start(container_id: str, host: str) -> subprocess.Popen[bytes]:
     options: dict[str, Any] = {}
-    if os.name == "nt":
+    if sys.platform == "win32":
         options["creationflags"] = subprocess.CREATE_NO_WINDOW
     environment = os.environ.copy()
     environment.pop("DOCKER_HOST", None)
