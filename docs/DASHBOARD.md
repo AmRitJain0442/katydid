@@ -1,6 +1,12 @@
-# Local dashboard
+# Vultron agent workspace
 
-Katydid exposes a small HTTP control surface for a caller that already owns task storage and worker lifecycle. It is a trusted local-user tool. It has no account authentication and must not be placed behind a public listener, reverse proxy, tunnel, shared host, or externally reachable container port.
+Vultron exposes a small HTTP control surface for a caller that already owns task storage and worker lifecycle. It is a trusted local-user tool. It has no account authentication and must not be placed behind a public listener, reverse proxy, tunnel, shared host, or externally reachable container port.
+
+The red-and-black workspace keeps repository dispatch and investigations in a sidebar,
+with an event trajectory, JSON inspector, and agent controls in the main area. Expand
+an event to inspect its payload; expanded events survive refreshes. The layout adapts
+to narrow screens and supports keyboard focus and reduced motion. Assets and fonts
+are local, with no external UI services. See [visual identity](BRAND.md).
 
 Create the server with:
 

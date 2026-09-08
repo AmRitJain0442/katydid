@@ -1,11 +1,15 @@
-# Katydid
+# Vultron
 
 Autonomous repository testing, AI repair, and verified delivery.
+
+Vultron's red-and-black agent workspace brings investigations, execution events,
+task evidence, and operator controls into one interface. See the
+[visual identity and compatibility notes](docs/BRAND.md).
 
 The [Gemini provider](docs/GEMINI.md) connects the same controlled repair workflow to Vertex AI
 using host-only application credentials. Codex remains the default backend.
 
-Katydid manages registered Git repositories through their existing test commands. It runs checks in separate clones, diagnoses failures with a real AI backend, applies narrowly permitted repairs, retests, obtains independent AI review, and publishes or merges eligible changes. Configured releases include health checks and rollback. A durable queue and localhost dashboard let an operator pause, cancel, resume, or steer work.
+Vultron manages registered Git repositories through their existing test commands. It runs checks in separate clones, diagnoses failures with a real AI backend, applies narrowly permitted repairs, retests, obtains independent AI review, and publishes or merges eligible changes. Configured releases include health checks and rollback. A durable queue and localhost dashboard let an operator pause, cancel, resume, or steer work.
 
 **Implemented:** the end-to-end single-host workflow, including authenticated Codex integration, local and GitHub delivery, scheduled discovery, release hooks, and per-run preparation/readiness/cleanup. Optional Linux Docker execution restricts source files, credentials, networking, and resources; an independent sweeper removes expired owned containers. Default local execution and release hooks remain trusted-host operations. Distributed hosting and autonomous red-team campaigns remain future work.
 
@@ -87,4 +91,4 @@ python scripts/dev.py cli run examples/sqlite-service/quality.yaml
 python scripts/dev.py build
 ```
 
-GitHub Actions runs the deterministic suite on Windows and Linux. The platform cannot prove exhaustive coverage for arbitrary repositories: teams register meaningful checks, requirements, and environment commands, then Katydid executes and evaluates that contract autonomously.
+GitHub Actions runs the deterministic suite on Windows and Linux. The platform cannot prove exhaustive coverage for arbitrary repositories: teams register meaningful checks, requirements, and environment commands, then Vultron executes and evaluates that contract autonomously.
