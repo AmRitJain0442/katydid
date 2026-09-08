@@ -24,7 +24,7 @@ h2,h3 { margin:0; font-weight:550; }
 label { display:block; margin-bottom:7px; color:var(--muted); font-size:11px; }
 select,textarea { width:100%; min-width:0; border:1px solid var(--line); border-radius:8px; color:var(--ink); background:var(--ground); padding:10px 12px; }
 select { text-overflow:ellipsis; }
-.primary { width:100%; margin-top:10px; background:var(--accent); box-shadow:none; font-weight:600; }
+.primary { width:100%; margin-top:10px; background:#ce2634; box-shadow:none; font-weight:600; }
 .primary:hover:not(:disabled) { background:#cc2130; box-shadow:none; }
 .primary span { margin-right:6px; font-size:17px; }
 .section-heading { display:flex; align-items:center; justify-content:space-between; margin:20px 8px 0; }

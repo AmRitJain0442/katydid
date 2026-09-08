@@ -21,6 +21,7 @@ unimplemented capabilities.
 | Primary text | `#f4f4f5` |
 | Secondary text | `#a1a1aa` |
 | Brand accent | `#ef3340` |
+| Primary button background | `#ce2634` (4.83:1 contrast with primary text) |
 | Accent text | `#ff7680` |
 | Typography | Segoe UI Variable / Segoe UI; Cascadia Code for records |
 
