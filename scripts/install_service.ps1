@@ -21,6 +21,10 @@ if (-not (Test-Path -LiteralPath $hostExecutable)) { throw 'The Windows backgrou
 if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
     throw 'A task with this name already exists; inspect or remove that specific task before reinstalling.'
 }
+$refreshTaskName = "$TaskName-SecurityDB"
+if ($SecurityManifest -and (Get-ScheduledTask -TaskName $refreshTaskName -ErrorAction SilentlyContinue)) {
+    throw 'The security refresh task already exists; inspect that specific task before reinstalling.'
+}
 & $pythonExecutable -m katydid fleet $fleetPath | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Fleet validation failed.' }
 $argumentList = @($launcher, '--fleet', $fleetPath, '--logs', $logsPath,
@@ -32,6 +36,7 @@ if ($CredentialFile) {
 }
 if ($SecurityManifest) {
     $manifestPath = (Resolve-Path -LiteralPath $SecurityManifest).Path
+    if ((Split-Path -Leaf $manifestPath) -ne 'setup.json') { throw 'SecurityManifest must be the installed setup.json.' }
     $argumentList += @('--security-manifest', $manifestPath)
 }
 if ($SweepNamespace) { $argumentList += @('--sweep-namespace', $SweepNamespace) }
@@ -50,4 +55,17 @@ $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhen
     -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
     -Principal $principal -Settings $settings | Out-Null
+if ($SecurityManifest) {
+    $refreshScript = Join-Path $workspaceRoot 'scripts\refresh_security.py'
+    $refreshArguments = @($refreshScript, '--manifest', $manifestPath, '--logs', $logsPath)
+    $refreshCommand = ($refreshArguments | ForEach-Object { '"' + $_ + '"' }) -join ' '
+    $refreshAction = New-ScheduledTaskAction -Execute $hostExecutable -Argument $refreshCommand -WorkingDirectory $workspaceRoot
+    $refreshTrigger = New-ScheduledTaskTrigger -Daily -At '03:00'
+    $refreshSettings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable `
+        -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 15) `
+        -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    Register-ScheduledTask -TaskName $refreshTaskName -Action $refreshAction -Trigger $refreshTrigger `
+        -Principal $principal -Settings $refreshSettings | Out-Null
+    Write-Output "Installed $refreshTaskName for daily vulnerability database refresh."
+}
 Write-Output "Installed $TaskName for the current user's logon. Start it with Start-ScheduledTask -TaskName $TaskName."

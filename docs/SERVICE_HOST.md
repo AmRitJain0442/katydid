@@ -70,3 +70,27 @@ WantedBy=multi-user.target
 
 Paths and the service account must exist before enabling the unit. This example
 does not install a Linux server, public endpoint, or deployment credentials.
+
+## Keep vulnerability data current
+
+When `-SecurityManifest` is supplied, the Windows installer also registers
+`Vultron-Worker-SecurityDB`. It runs daily at 03:00, catches up after a missed
+start, and retries failures three times at 15-minute intervals. Check its
+`LastTaskResult` and `security-refresh.log` beside the worker log. Run it immediately
+with `Start-ScheduledTask -TaskName Vultron-Worker-SecurityDB` when required.
+
+The refresh downloads into a new cache generation and atomically publishes the
+manifest only after success. Concurrent scans keep using their original complete
+generation. A failed refresh leaves the previous database available; dependency
+checks reject it once it exceeds their configured maximum age (72 hours by default).
+Old generations are retained and need operator retention management.
+
+For Linux, schedule the same command daily with a systemd timer or cron under the
+service account:
+
+```text
+/opt/vultron/.venv/bin/python /opt/vultron/scripts/refresh_security.py --manifest /var/lib/vultron/security-tools/setup.json --logs /var/lib/vultron/logs
+```
+
+The Windows tasks run while the configured user is logged on. An always-on server
+requires a persistent service account and its host authentication to be provisioned.
