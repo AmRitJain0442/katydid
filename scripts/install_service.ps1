@@ -1,0 +1,46 @@
+param(
+    [Parameter(Mandatory = $true)][string]$Fleet,
+    [Parameter(Mandatory = $true)][string]$Logs,
+    [string]$CredentialFile,
+    [ValidateRange(1, 65535)][int]$Port = 8765,
+    [ValidateRange(1, 86400)][int]$Interval = 60,
+    [ValidateRange(0, 2147483647)][int]$ScheduleSeconds = 86400,
+    [ValidatePattern('^Vultron-[A-Za-z0-9-]+$')][string]$TaskName = 'Vultron-Worker'
+)
+$ErrorActionPreference = 'Stop'
+$workspaceRoot = Split-Path -Parent $PSScriptRoot
+$pythonExecutable = Join-Path $workspaceRoot '.venv\Scripts\python.exe'
+$hostExecutable = Join-Path $workspaceRoot '.venv\Scripts\pythonw.exe'
+$launcher = Join-Path $PSScriptRoot 'run_service.py'
+$fleetPath = (Resolve-Path -LiteralPath $Fleet).Path
+$logsPath = [System.IO.Path]::GetFullPath($Logs)
+if (-not (Test-Path -LiteralPath $pythonExecutable)) { throw 'Run python scripts/dev.py sync first.' }
+if (-not (Test-Path -LiteralPath $hostExecutable)) { throw 'The Windows background Python launcher is unavailable.' }
+if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
+    throw 'A task with this name already exists; inspect or remove that specific task before reinstalling.'
+}
+& $pythonExecutable -m katydid fleet $fleetPath | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Fleet validation failed.' }
+$argumentList = @($launcher, '--fleet', $fleetPath, '--logs', $logsPath,
+    '--port', [string]$Port, '--interval', [string]$Interval,
+    '--schedule-seconds', [string]$ScheduleSeconds)
+if ($CredentialFile) {
+    $credentialPath = (Resolve-Path -LiteralPath $CredentialFile).Path
+    $argumentList += @('--credential-file', $credentialPath)
+}
+foreach ($argument in $argumentList) {
+    if ($argument.Contains('"') -or $argument.Contains("`n") -or $argument.Contains("`r")) {
+        throw 'Task arguments cannot contain quotes or newlines.'
+    }
+}
+$taskArguments = ($argumentList | ForEach-Object { '"' + $_ + '"' }) -join ' '
+$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+$action = New-ScheduledTaskAction -Execute $hostExecutable -Argument $taskArguments -WorkingDirectory $workspaceRoot
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $identity
+$principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited
+$settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable `
+    -RestartCount 10 -RestartInterval (New-TimeSpan -Minutes 1) `
+    -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
+    -Principal $principal -Settings $settings | Out-Null
+Write-Output "Installed $TaskName for the current user's logon. Start it with Start-ScheduledTask -TaskName $TaskName."
