@@ -74,22 +74,24 @@ python scripts/dev.py cli doctor --fleet path/to/fleet.yaml
 |---|---|
 | `schema_version` | Required integer `1`. Booleans and strings do not coerce to it. |
 | `state_directory` | `.katydid/control`. Holds `state.db`, task workspaces, run evidence, AI evidence, and release records. A relative value resolves beside the fleet file. |
-| `ai` | Optional strict object controlling the only implemented provider. |
+| `ai` | Optional strict object selecting and bounding the AI provider. |
 | `repositories` | One or more repository objects with unique IDs and unique Git sources. |
 
 ## AI fields
 
 | Field | Default and rules |
 |---|---|
-| `provider` | `codex`; this is the only accepted value. |
-| `model` | `gpt-5.6-sol`. Passed directly to Codex CLI. |
+| `provider` | `codex` by default; `gemini` selects the Vertex AI integration. |
+| `model` | `gpt-5.6-sol` for Codex by default. Gemini requires an explicit model and `vertex_project`; see [Gemini configuration](GEMINI.md). |
 | `reasoning` | `high`; one of `low`, `medium`, or `high`. |
 | `command` | Normally omitted. An optional nonempty argument array for a controlled launcher override or deterministic test; no shell string is accepted. |
 | `timeout_seconds` | `180`; integer from 10 through 900 for each model process. |
 | `max_calls_per_task` | `6`; integer from 2 through 20 across diagnosis, repair, and review. The controller reserves calls durably before dispatch; interruptions, retries, and new worker epochs do not reset this task budget. A failed or interrupted dispatch still consumes its reservation. |
 | `max_context_bytes` | `180000`; integer from 1,000 through 500,000. Bounds snapshotted source context, serialized model context, and the final structured response. |
 
-The model runs ephemerally in a read-only, empty directory with tools disabled. It returns structured data; the controller applies allowed edits and executes checks. See [Codex model provider](AI.md).
+Each model role runs ephemerally with execution tools disabled. It returns structured data;
+the controller applies allowed edits and executes checks. See [Codex](AI.md) and
+[Gemini](GEMINI.md) for their authentication and provider-specific limits.
 
 ## Repository fields
 

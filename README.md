@@ -6,6 +6,10 @@ Vultron's red-and-black agent workspace brings investigations, execution events,
 task evidence, and operator controls into one interface. See the
 [visual identity and compatibility notes](docs/BRAND.md).
 
+For continuous operation, use the [supervised host launcher](docs/SERVICE_HOST.md).
+The dashboard's Runtime and checks panel reports the actual worker, selected AI
+provider, watching/schedule settings, and mandatory repository checks.
+
 The [Gemini provider](docs/GEMINI.md) connects the same controlled repair workflow to Vertex AI
 using host-only application credentials. Codex remains the default backend.
 
