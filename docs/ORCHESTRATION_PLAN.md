@@ -79,3 +79,17 @@ delivery through durable ingestion and exact-head controller execution. It verif
 head passes inside Docker while the base remains unchanged, no AI/delivery is invoked, and every
 container is removed. The other five tests retain containment, cancellation, timeout, repair, and
 hard-kill recovery coverage. Hosted CI remains the final cross-platform acceptance for the push.
+
+## Release authority follow-up
+
+Release hooks now use a fresh checkout of the verified commit, with current-base, control, and
+checkout-integrity checks before and after each hook. The store serializes the success-pointer
+replacement with task interruption under an active monitoring lease. Regressions cover test
+artifacts, hook mutations, newer merges, interruption after passing health, and lease expiry while
+waiting for a store transaction. Filesystem and SQLite crash reconciliation remains future work.
+
+A second real Codex run, task `c4662b7cb48a40138a1263a8c03ffbe8`, passed this updated path:
+five baseline assertions failed; diagnosis, repair, and independent review produced candidate
+`09da2f78810eb3f3d703ae7743419ff4509938ac`; protected tests and the separate release stage passed;
+local merge, fresh-checkout deployment, health, and the fenced success record all completed.
+The [curated follow-up evidence](evidence/release-authority-live-acceptance.json) records the result.

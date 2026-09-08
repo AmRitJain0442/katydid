@@ -87,12 +87,12 @@ permissions:
 
 jobs:
   katydid:
-    uses: AmRitJain0442/katydid/.github/workflows/reusable-checks.yml@75a6b695a76008a734766209f689af135434f5cc
+    uses: AmRitJain0442/katydid/.github/workflows/reusable-checks.yml@8a7f143237d9c296c6bcff21aa8ef37b0ed2e22b
     with:
       stage: pull-request
       profile: quality.yaml
       target_ref: ${{ github.event.pull_request.head.sha }}
-      platform_ref: 75a6b695a76008a734766209f689af135434f5cc
+      platform_ref: 8a7f143237d9c296c6bcff21aa8ef37b0ed2e22b
       artifact_suffix: service
     permissions:
       contents: read
@@ -229,6 +229,13 @@ check-only. `release` requires the release stage and centrally registered deploy
 rollback hooks. For repair-and-deliver repositories that have central release hooks, Katydid
 runs the candidate's release-stage profile checks before publication, then executes the central
 release hooks only for the exact delivered tree.
+
+Release hooks run from a fresh checkout of that commit. They must keep the checkout clean,
+including ignored and untracked files, and put mutable deployment state under `{release_dir}`.
+The controller rechecks the base revision and control authority around every hook. A new merge
+or checkout mutation stops the sequence. A passing health check can update the success pointer
+only under the still-active monitoring lease. See [release hooks](FLEET.md#release-hooks) for the
+remaining crash-reconciliation and artifact-promotion boundaries.
 
 Base-branch discovery creates `merge` tasks. A schedule creates separate `nightly` tasks for
 unchanged heads. Discovery preserves autonomous repair for registered repositories with a

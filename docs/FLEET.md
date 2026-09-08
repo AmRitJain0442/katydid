@@ -139,6 +139,18 @@ runs the configured hooks without AI edits. Signed release events additionally r
 
 After an exact tested tree is merged, Katydid runs deploy and then health. A passing health check records `releases/<repository>/last-success.json`. A failed deploy or health check invokes rollback followed by the same health hook. A healthy rollback leaves the task failed with recovery evidence. A failed or interrupted recovery leaves the task unresolved rather than asserting a known deployment state.
 
+Hooks receive a fresh checkout of the released commit. Files generated during testing are not
+deployment inputs. Before and after each hook, the controller checks the current base revision,
+control authority, checkout HEAD, and tracked, untracked, and ignored files. Hooks must write
+deployment state outside the checkout, normally under `{release_dir}`. A changed checkout or
+superseding base revision stops the sequence; after external effects, this requires reconciliation.
+Build artifact promotion is a subsequent increment.
+
+The success pointer is atomically replaced while holding the store's write transaction and a valid
+monitoring lease. This serializes the update with pause/cancel controls. The filesystem pointer and
+SQLite event are separate durability domains: a host crash between them still requires
+reconciliation. Remote branch movement and deployment are also not one atomic operation.
+
 These commands run locally with the Katydid process's operating-system permissions. They are adapters for an environment the operator already controls; Katydid does not provision a container, cloud account, secret broker, or deployment platform.
 
 ## Repository profile and any test framework

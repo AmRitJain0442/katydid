@@ -172,7 +172,9 @@ The fleet's `state_directory` contains:
 ```text
 state.db                         durable tasks and append-only events
 tasks/TASK_ID/EPOCH/workspace/   separate candidate clone
+tasks/TASK_ID/EPOCH/release-workspace/  fresh exact-commit release clone
 tasks/TASK_ID/EPOCH/runs/        baseline and verification run directories
+tasks/TASK_ID/EPOCH/release-runs/       deploy, health, and recovery evidence
 tasks/TASK_ID/EPOCH/ai/          prompts, schemas, CLI events, stderr, responses, receipts
 tasks/TASK_ID/EPOCH/candidate.json
 tasks/TASK_ID/EPOCH/outcome.json
@@ -185,6 +187,7 @@ Normal terminal meanings are:
 
 - `completed` with `outcome: healthy`: the original baseline passed and no AI or delivery was needed.
 - `completed` with `outcome: repaired`: baseline failed, a candidate passed verification and independent review, and all configured delivery/release steps completed.
+- `completed` with `outcome: released`: an explicit release task passed its release-stage checks, deployed the current registered revision, and passed health without AI edits.
 - `failed`: a known error blocked completion, including a release failure whose rollback was verified healthy.
 - `cancelled`: control stopped work before a potentially committed external stage.
 - `unresolved`: the controller cannot safely assert the outcome of publication, deployment, monitoring, or recovery.
