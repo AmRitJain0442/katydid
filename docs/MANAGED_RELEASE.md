@@ -1,5 +1,23 @@
 # Managed local releases
 
+## Unattended Windows recovery
+
+After the first successful deployment, register recovery under the same host account:
+
+```powershell
+powershell -NoProfile -File scripts/install_release.ps1 -State C:/vultron/state/releases/orders -Spec C:/vultron/config/orders.json -Logs C:/vultron/logs -TaskName Vultron-Orders-Recovery
+Start-ScheduledTask -TaskName Vultron-Orders-Recovery
+```
+
+This task checks the established release at logon and every minute. It restores a
+verified crashed application using the immutable artifact and existing data, without
+needing its old Git checkout. Explicitly stopped releases remain stopped. Failed
+candidate deployments remain subject to the controller's rollback flow. The task
+runs while the configured user is logged on; deploy a dedicated service account on
+an always-on host for continuous service. Inspect `LastTaskResult` and the bounded
+`release-recovery.log` for failures. On Linux, invoke `scripts/maintain_release.py`
+with the same `--state`, `--spec`, and `--logs` through a one-minute systemd timer.
+
 `katydid.deployment` runs one loopback service from an exact Git commit while keeping mutable data outside the checkout. It is intended for a Katydid fleet release hook on a Windows or Linux host. It does not deploy to cloud infrastructure or adopt an existing process.
 
 The adapter performs a fixed-port cutover in this order:
