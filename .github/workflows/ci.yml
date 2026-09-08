@@ -14,6 +14,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  security:
+    name: Security adapters (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with:
+          version: "0.12.10"
+          enable-cache: true
+      - name: Install locked platform
+        run: uv sync --locked
+      - name: Prepare verified scanner binaries and current vulnerability data
+        run: uv run --locked python scripts/security/setup.py prepare
+      - name: Verify genuine findings, clean scans, and failure handling
+        run: uv run --locked pytest tests/test_security.py -v --junitxml=.katydid/security-evidence/junit.xml
+      - name: Preserve scanner test evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: security-evidence-${{ matrix.os }}
+          path: .katydid/security-evidence/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
   verify:
     name: Verify (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
