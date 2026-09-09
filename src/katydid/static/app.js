@@ -239,9 +239,9 @@ function resultGroups(task) {
 }
 function renderOutcome(task) {
   const result = task.result || {};
-  const titles = { healthy: "All required checks passed", repaired: "Repair verified and delivered", released: "Release deployed and verified" };
+  const titles = { healthy: "All required checks passed", repaired: "Repair verified", released: "Release deployed and verified" };
   const stateTitles = { queued: "Investigation queued", paused: "Investigation paused", completed: "Investigation complete", failed: "Investigation failed", unresolved: "Investigation needs attention", cancelled: "Investigation cancelled" };
-  $("#outcome-title").textContent = titles[result.outcome] || stateTitles[task.state] || `${humanize(task.state)} repository`;
+  $("#outcome-title").textContent = (task.state === "completed" && titles[result.outcome]) || stateTitles[task.state] || `${humanize(task.state)} repository`;
   const groups = resultGroups(task);
   const latest = groups.at(-1);
   const count = latest?.results.length;
@@ -407,12 +407,15 @@ async function selectTask(id, quiet = false) {
 async function loadTasks(quiet = false) {
   if (loadingTasks) return;
   loadingTasks = true;
+  const version = selectionVersion;
   try {
     const payload = await api("/api/tasks");
     tasks = (Array.isArray(payload.tasks) ? payload.tasks : []).sort((a, b) => (timestamp(b.created_at ?? b.created) || 0) - (timestamp(a.created_at ?? a.created) || 0));
     $("#connection-status").textContent = "Connected · syncs every 4s";
     $("#connection-dot").dataset.state = "completed";
     renderTasks();
+    // A response started before navigation cannot clear or refresh the new selection.
+    if (version !== selectionVersion) return;
     if (selectedId && tasks.some(task => safeText(task.id, "") === selectedId)) await selectTask(selectedId, quiet);
     else if (selectedId) newInvestigation(false);
   } catch (error) {
