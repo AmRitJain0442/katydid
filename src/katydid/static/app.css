@@ -112,6 +112,44 @@ select { width:100%; min-width:0; padding:6px 24px 6px 0; border:0; color:var(--
 .evidence-tabs button[aria-selected="true"] { color:var(--ink); }
 .evidence-tabs button[aria-selected="true"]::after { content:""; position:absolute; bottom:-1px; left:0; right:0; height:2px; background:var(--accent); }
 .evidence-tabs button>span { color:var(--subtle); background:#ffffff07; border-radius:4px; padding:1px 5px; font:9px var(--mono); }
+.evidence-tabs .live-tab-dot { width:5px; height:5px; padding:0; border-radius:50%; background:var(--accent); }
+.live-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:20px; }
+.live-heading h3 { font-size:14px; }
+.live-heading p { color:var(--subtle); font-size:11px; margin:6px 0 0; }
+.workflow-phases { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:5px; margin:0 0 22px; padding:0; list-style:none; }
+.workflow-phases li { position:relative; padding:11px 7px; border:1px solid var(--line); border-radius:7px; background:#ffffff02; min-width:0; }
+.workflow-phases li[data-phase-state="active"] { border-color:#f0445270; background:var(--accent-soft); }
+.workflow-phases li[data-phase-state="visited"] { border-color:#8dccab26; }
+.workflow-phases b { display:block; font-size:10px; font-weight:500; }
+.workflow-phases span { display:block; margin-top:5px; color:var(--subtle); font:8px/1.6 var(--mono); }
+.workflow-phases li[data-phase-state="active"] span { color:var(--accent-ink); }
+.live-toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:20px; color:var(--subtle); font-size:10px; }
+.live-toolbar label { display:flex; gap:5px; align-items:center; font-size:10px; }
+.live-run { margin:0 0 22px; }
+.live-run-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+.live-run-head h4 { font-size:11px; font-weight:500; margin:0; }
+.live-run-head small { color:var(--subtle); font:9px var(--mono); }
+.live-step { border:1px solid var(--line); border-radius:8px; margin-bottom:6px; background:#ffffff02; overflow:hidden; }
+.live-step[data-state="running"] { border-color:#f0445260; }
+.live-step[data-state="running"] .state-dot::before { animation:tool-pulse 1.4s ease-in-out infinite; }
+@keyframes tool-pulse { 50% { opacity:.35; } }
+.live-step>summary { display:flex; align-items:center; gap:10px; padding:12px; cursor:pointer; list-style:none; }
+.live-step>summary::-webkit-details-marker { display:none; }
+.live-step>summary::after { content:"›"; color:var(--subtle); }
+.live-step[open]>summary::after { transform:rotate(90deg); }
+.live-step-label { flex:1; min-width:0; }
+.live-step-label strong { display:block; font-size:12px; font-weight:500; overflow-wrap:anywhere; }
+.live-step-label small { display:block; margin-top:3px; color:var(--subtle); font:9px var(--mono); }
+.live-step .state-dot { font:9px var(--mono); white-space:nowrap; color:var(--state-color,var(--subtle)); }
+.live-duration { color:var(--subtle); font:9px var(--mono); white-space:nowrap; }
+.tool-output { padding:0 12px 12px; }
+.tool-detail { color:var(--muted); font-size:11px; margin:0 0 10px; }
+.stream-header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:12px 0 7px; font:9px var(--mono); color:var(--subtle); }
+.stream-header b { font-weight:400; color:var(--muted); }
+.tool-output pre { max-height:240px; white-space:pre-wrap; background:#0d0d0e; line-height:1.8; }
+.live-footnote { color:var(--subtle); font-size:10px; line-height:1.8; margin:20px 0 0; }
+@media (max-width:1150px) { .workflow-phases { grid-template-columns:repeat(3,minmax(0,1fr)); } .live-step>summary { gap:7px; } }
+@media (max-width:700px) { .evidence-tabs { gap:18px; } .evidence-tabs button { font-size:11px; } .live-duration { display:none; } }
 .activity-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:22px; }
 .activity-heading h3 { color:var(--muted); font-size:11px; }
 .system-toggle { display:flex; align-items:center; gap:5px; color:var(--subtle); font-size:10px; cursor:pointer; }

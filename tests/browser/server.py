@@ -15,7 +15,11 @@ def run() -> int:
         catalog = root / "sources" / "catalog"
         verifier = catalog / "verify.py"
         verifier.write_text(
-            "import time\ntime.sleep(2)\n" + verifier.read_text(encoding="utf-8"),
+            "import time\n"
+            "print('Starting catalog contract checks', flush=True)\n"
+            "for progress in range(8):\n"
+            "    print(f'Contract progress {progress + 1}/8', flush=True)\n"
+            "    time.sleep(1)\n" + verifier.read_text(encoding="utf-8"),
             encoding="utf-8",
         )
         subprocess.run(

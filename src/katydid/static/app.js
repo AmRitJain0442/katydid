@@ -25,6 +25,11 @@ let selectionVersion = 0;
 let loadingTasks = false;
 let controlPending = false;
 let createPending = false;
+let workflowLoading = false;
+let workflowGeneration = 0;
+let workflowStructure = "";
+let lastAutoOpened = "";
+const liveSteps = new Map();
 const terminalStates = new Set(["completed", "failed", "cancelled", "unresolved"]);
 
 function safeText(value, fallback = "—") {
@@ -35,7 +40,7 @@ function knownState(value) {
   const state = safeText(value, "unknown").toLowerCase();
   if (["queued", "discovered"].includes(state)) return "queued";
   if (["completed", "passed", "paused", "failed", "error", "cancelled"].includes(state)) return state;
-  if (state === "unresolved") return "failed";
+  if (["unresolved", "timed_out", "missing_evidence", "invalid_evidence", "no_tests"].includes(state)) return "failed";
   if (["running", "preparing", "planning", "testing", "diagnosing", "executing", "verifying", "repairing", "reviewing", "eligible", "merging", "publishing", "deploying", "releasing", "monitoring"].includes(state)) return "running";
   return "unknown";
 }
@@ -331,6 +336,150 @@ function renderEvents(events) {
     appendText(details, "pre", JSON.stringify(event, null, 2));
   }
 }
+function resetWorkflow() {
+  workflowGeneration++;
+  workflowStructure = "";
+  lastAutoOpened = "";
+  liveSteps.clear();
+  $("#live-runs").replaceChildren();
+  $("#workflow-phases").replaceChildren();
+  $("#live-status").textContent = "Connecting to execution evidence…";
+}
+function renderWorkflowPhases() {
+  const phases = [
+    ["Prepare", ["preparing", "planning"]], ["Test", ["testing"]],
+    ["Diagnose", ["diagnosing"]], ["Repair", ["repairing", "executing"]],
+    ["Verify", ["verifying", "reviewing", "eligible"]],
+    ["Deliver", ["publishing", "merging", "deploying", "releasing", "monitoring"]],
+  ];
+  const reached = new Set(selectedEvents.map(event => event.state));
+  const list = $("#workflow-phases");
+  const signature = JSON.stringify([selectedTask?.state, [...reached]]);
+  if (list.dataset.signature === signature) return;
+  list.dataset.signature = signature;
+  list.replaceChildren();
+  phases.forEach(([label, states]) => {
+    const item = container(list, "li");
+    const active = states.includes(selectedTask?.state);
+    const visited = states.some(state => reached.has(state));
+    item.dataset.phaseState = active ? "active" : visited ? "visited" : "pending";
+    appendText(item, "b", label);
+    appendText(item, "span", active ? "In progress" : visited ? "Reached" : terminalStates.has(selectedTask?.state) ? "Not used" : "Waiting");
+  });
+}
+function toolLabel(name) {
+  const names = { browser: "Browser tests", unit: "Unit tests", api: "API tests", lint: "Lint", "isolated-contracts": "Docker contracts", "static-analysis": "Static analysis", "dependency-vulnerabilities": "Dependency scan", "secret-detection": "Secret scan" };
+  return names[name] || humanize(name);
+}
+function renderWorkflow(workflow) {
+  renderWorkflowPhases();
+  const runs = Array.isArray(workflow.runs) ? workflow.runs : [];
+  const allSteps = runs.flatMap(run => run.steps || []);
+  const running = allSteps.filter(step => step.status === "running");
+  const terminal = terminalStates.has(selectedTask?.state);
+  $("#live-sync").textContent = terminal ? "RECORDED" : "LIVE";
+  $("#live-sync").dataset.state = running.length ? "running" : "unknown";
+  $("#live-status").textContent = !workflow.available ? "Live execution evidence is unavailable on this host." : running.length ? `${running.length} tool running · ${toolLabel(running[0].name)}` : terminal ? "Recorded execution · no tools running" : `Worker: ${humanize(selectedTask?.state)} · waiting for the next tool`;
+  if (workflow.truncated) $("#live-status").textContent += " · showing recent runs";
+  const structure = JSON.stringify([selectedId, runs.map(run => [run.id, run.steps.map(step => step.key)])]);
+  if (structure !== workflowStructure) {
+    const expanded = new Set([...liveSteps].filter(([, node]) => node.open).map(([key]) => key));
+    workflowStructure = structure;
+    liveSteps.clear();
+    const target = $("#live-runs");
+    target.replaceChildren();
+    if (!runs.length) appendText(target, "p", workflow.available ? "No tool execution has been recorded yet. Repository preparation and AI phases are shown above and in Activity." : "The worker must support live evidence to populate this view.", "empty");
+    runs.forEach((run, index) => {
+      const section = container(target, "section", "live-run");
+      const head = container(section, "div", "live-run-head");
+      appendText(head, "h4", `${run.category === "release-runs" ? "Release hook" : "Test run"} ${index + 1} · ${humanize(run.stage)}`);
+      appendText(head, "small", run.id.slice(0, 8));
+      for (const step of run.steps) {
+        const row = container(section, "details", "live-step");
+        row.dataset.key = step.key;
+        row.open = expanded.has(step.key);
+        liveSteps.set(step.key, row);
+        const summary = container(row, "summary");
+        const label = container(summary, "span", "live-step-label");
+        appendText(label, "strong", toolLabel(step.name));
+        appendText(label, "small", `${step.phase} / ${step.name}`);
+        appendText(summary, "span", "—", "live-duration");
+        stateLabel(summary, step.status);
+        const output = container(row, "div", "tool-output");
+        appendText(output, "p", "", "tool-detail");
+        for (const stream of ["stdout", "stderr"]) {
+          const header = container(output, "div", "stream-header");
+          appendText(header, "b", stream);
+          const count = appendText(header, "span", "");
+          count.dataset.streamCount = stream;
+          const pre = appendText(output, "pre", "Waiting for output…");
+          pre.dataset.stream = stream;
+          pre.tabIndex = 0;
+          pre.setAttribute("aria-label", `${toolLabel(step.name)} ${stream}`);
+        }
+        row.addEventListener("toggle", () => {
+          if (row.open && [...liveSteps.values()].filter(node => node.open).length > 8) {
+            row.open = false;
+            showNotice("Close another output before expanding more than eight tools.");
+            return;
+          }
+          if (row.open) loadWorkflow();
+        });
+      }
+    });
+  }
+  for (const step of allSteps) {
+    const row = liveSteps.get(step.key);
+    if (!row) continue;
+    row.dataset.state = knownState(step.status);
+    const state = row.querySelector(".state-dot");
+    state.textContent = step.status.replaceAll("_", " ");
+    state.dataset.state = knownState(step.status);
+    const elapsed = step.status === "running" && Number.isFinite(timestamp(step.started_at)) ? Math.max(0, (Date.now() - timestamp(step.started_at)) / 1000) : step.duration_seconds;
+    row.querySelector(".live-duration").textContent = Number.isFinite(elapsed) ? `${elapsed.toFixed(1)}s` : "—";
+    row.querySelector(".tool-detail").textContent = step.detail || (step.status === "running" ? "Process is running. Output appears as the tool writes it." : step.status === "pending" ? "Waiting to execute." : "Inspect the recorded process output below.");
+    const logs = workflow.logs?.[step.key];
+    for (const stream of ["stdout", "stderr"]) {
+      const value = logs?.[stream];
+      if (!value) continue;
+      const pre = row.querySelector(`[data-stream="${stream}"]`);
+      const atEnd = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 32;
+      const text = value.text || (value.available ? "No output written to this stream yet." : "This stream is not available yet.");
+      if (pre.textContent !== text) {
+        pre.textContent = text;
+        if (atEnd) pre.scrollTop = pre.scrollHeight;
+      }
+      row.querySelector(`[data-stream-count="${stream}"]`).textContent = value.truncated ? `Latest 16 KiB · ${value.bytes.toLocaleString()} bytes total` : `${value.bytes.toLocaleString()} bytes`;
+    }
+  }
+  if ($("#follow-active").checked && running.length && lastAutoOpened !== running[0].key) {
+    if (lastAutoOpened) {
+      const previous = liveSteps.get(lastAutoOpened);
+      if (previous) previous.open = false;
+    }
+    lastAutoOpened = running[0].key;
+    const current = liveSteps.get(lastAutoOpened);
+    if (current && [...liveSteps.values()].filter(node => node.open).length < 8) current.open = true;
+  }
+}
+async function loadWorkflow() {
+  if (workflowLoading || !selectedId || $("#live-panel").hidden || document.hidden) return;
+  const id = selectedId;
+  const generation = workflowGeneration;
+  workflowLoading = true;
+  try {
+    const query = new URLSearchParams();
+    for (const [key, row] of liveSteps) if (row.open) query.append("log", key);
+    const payload = await api(`/api/tasks/${encodeURIComponent(id)}/live?${query}`);
+    if (selectedId === id && generation === workflowGeneration) renderWorkflow(payload.workflow || { available: false });
+  } catch {
+    if (selectedId === id && generation === workflowGeneration) {
+      $("#live-status").textContent = "Live connection unavailable · showing last received evidence. Retrying…";
+      $("#live-sync").textContent = "OFFLINE";
+      $("#live-sync").dataset.state = "unknown";
+    }
+  } finally { workflowLoading = false; }
+}
 function switchTab(name, focus = false) {
   document.querySelectorAll("[data-tab]").forEach(button => {
     const active = button.dataset.tab === name;
@@ -339,6 +488,7 @@ function switchTab(name, focus = false) {
     $(`#${button.dataset.tab}-panel`).hidden = !active;
     if (active && focus) button.focus();
   });
+  if (name === "live") loadWorkflow();
 }
 function renderDetail(task, events) {
   selectedTask = task;
@@ -356,6 +506,7 @@ function renderDetail(task, events) {
   renderOutcome(task);
   renderChecks(task);
   renderEvents(events);
+  renderWorkflowPhases();
   const record = JSON.stringify(task, null, 2);
   if (ui.record.textContent !== record) ui.record.textContent = record;
 }
@@ -364,6 +515,7 @@ function newInvestigation(focus = true) {
   selectedId = null;
   selectedTask = null;
   selectedEvents = [];
+  resetWorkflow();
   ui.detailContent.hidden = true;
   ui.detailEmpty.hidden = false;
   $("#task-context").hidden = true;
@@ -378,6 +530,7 @@ async function selectTask(id, quiet = false) {
   const version = ++selectionVersion;
   selectedId = id;
   if (changed) {
+    resetWorkflow();
     selectedTask = null;
     ui.instruction.value = "";
     ui.detailContent.hidden = true;
@@ -500,12 +653,18 @@ document.querySelectorAll("[data-tab]").forEach(button => {
   button.addEventListener("keydown", event => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
-    switchTab(event.key === "Home" ? "activity" : event.key === "End" ? "checks" : button.dataset.tab === "activity" ? "checks" : "activity", true);
+    const tabs = ["live", "activity", "checks"];
+    const offset = event.key === "ArrowLeft" ? -1 : 1;
+    const target = event.key === "Home" ? "live" : event.key === "End" ? "checks" : tabs[(tabs.indexOf(button.dataset.tab) + offset + tabs.length) % tabs.length];
+    switchTab(target, true);
   });
 });
 $("#task-search").addEventListener("input", renderTasks);
 $("#new-investigation").addEventListener("click", () => newInvestigation());
 $("#show-system-events").addEventListener("change", () => renderEvents(selectedEvents));
+$("#follow-active").addEventListener("change", () => { lastAutoOpened = ""; loadWorkflow(); });
+window.setInterval(loadWorkflow, 2000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) loadWorkflow(); });
 function setInspector(open) {
   $("#context-panel").hidden = !open;
   $(".app-shell").classList.toggle("inspector-closed", !open);

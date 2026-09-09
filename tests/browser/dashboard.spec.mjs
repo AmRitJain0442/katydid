@@ -181,3 +181,31 @@ test("failed steering preserves the operator note and runtime failure is visible
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
 });
+
+test("live workflow displays real subprocess output before the worker finishes", async ({ page }) => {
+  const errors = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.goto("/");
+  const task = await enqueueCatalog(page);
+  await page.getByRole("tab", { name: "Live workflow" }).click();
+  await expect(page.locator(".live-step[data-state=running]")).toHaveCount(1);
+  const running = page.locator(".live-step[data-state=running]");
+  await expect(running).toHaveAttribute("open", "");
+  await expect(running.locator('[data-stream="stdout"]')).toContainText("Starting catalog contract checks");
+  const response = await page.request.get(`/api/tasks/${task.id}`);
+  expect((await response.json()).task.state).toBe("testing");
+  await expect(running.locator('[data-stream="stdout"]')).toContainText("Contract progress");
+  await page.getByLabel("Follow active tool").uncheck();
+  await page.getByRole("button", { name: "Refresh tasks" }).click();
+  await expect(page.getByRole("tab", { name: "Live workflow" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".live-step")).toHaveAttribute("open", "");
+  await expect.poll(async () => (await (await page.request.get(`/api/tasks/${task.id}`)).json()).task.state, { timeout: 30000 }).toBe("completed");
+  await expect(page.locator(".live-step .state-dot")).toHaveText("passed");
+  await expect(page.locator("#live-sync")).toHaveText("RECORDED");
+  await expect(page.locator('[data-stream="stdout"]')).toContainText("Contract progress 8/8");
+  for (const width of [320, 768, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  expect(errors).toEqual([]);
+});
