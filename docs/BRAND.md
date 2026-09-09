@@ -30,6 +30,17 @@ semantic status accents. Status text accompanies color. Keep native controls,
 visible keyboard focus, reduced-motion support, and independently scrollable
 evidence. Both applications use local assets and CSS variables.
 
+## Logo asset
+
+The current workspace uses the original split-chevron V in
+[`vultron-mark.svg`](../src/katydid/static/vultron-mark.svg). Two solid red shapes
+are separated by a narrow diagonal cut. The only color is `#f04452`; the background
+is transparent, with no gradients, shadows, outlines, or enclosing badge.
+
+This is a native SVG, drawn directly rather than generated as a bitmap. The same
+asset serves the sidebar, welcome screen, workspace avatar, footer, and SVG favicon.
+Keep its 64-by-64 viewBox and built-in clear space intact when reusing it.
+
 ## Compatibility
 
 This release changes the product identity and frontend presentation. Existing

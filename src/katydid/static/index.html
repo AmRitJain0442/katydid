@@ -5,12 +5,12 @@
   <meta name="color-scheme" content="dark"><meta name="theme-color" content="#101011">
   <meta name="description" content="Vultron — autonomous repository testing, AI repair, and verified delivery.">
   <title>Vultron — Agent workspace</title>
+  <link rel="icon" type="image/svg+xml" href="/static/vultron-mark.svg">
   <link rel="stylesheet" href="/static/app.css"><script src="/static/app.js" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#task-detail">Skip to workspace</a>
   <svg class="svg-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-    <symbol id="v-mark" viewBox="0 0 32 32"><path d="M3 5h8l5 13 5-13h8L16 29 3 5Z" fill="currentColor"/><path d="m13 5 3 7 3-7h-6Z" fill="currentColor"/></symbol>
     <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol>
     <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/></symbol>
@@ -20,21 +20,21 @@
   </svg>
   <div class="app-shell">
     <aside class="task-rail" aria-labelledby="tasks-heading">
-      <a class="brand-lockup" href="/" aria-label="Vultron home"><svg class="mark" aria-hidden="true"><use href="#v-mark"/></svg><span>vultron<span class="brand-period">.</span></span><small>WORKSPACE</small></a>
+      <a class="brand-lockup" href="/" aria-label="Vultron home"><img class="mark" src="/static/vultron-mark.svg" width="30" height="30" alt=""><span>vultron<span class="brand-period">.</span></span><small>WORKSPACE</small></a>
       <button id="new-investigation" class="new-task" type="button"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>New investigation<span class="key-hint" aria-hidden="true">↗</span></button>
       <div class="search-field"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><input id="task-search" type="search" aria-label="Search investigations" placeholder="Search investigations…" autocomplete="off"></div>
       <div class="section-heading"><h2 id="tasks-heading">Investigations</h2><button id="refresh" class="icon-button" type="button" aria-label="Refresh tasks" title="Refresh tasks"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button></div>
       <div class="task-filters" role="group" aria-label="Filter investigations"><button type="button" data-filter="all" aria-pressed="true">All</button><button type="button" data-filter="active" aria-pressed="false">Active</button><button type="button" data-filter="attention" aria-pressed="false">Attention</button></div>
       <p id="task-count" class="count" role="status">Loading tasks…</p>
       <div id="task-list" class="task-list"><div class="empty">Fetching investigations…</div></div>
-      <div class="rail-footer"><span class="workspace-avatar" aria-hidden="true">V</span><div>Local workspace<small id="connection-status">Connecting…</small></div><span id="connection-dot" class="status-light" data-state="unknown" aria-hidden="true"></span></div>
+      <div class="rail-footer"><span class="workspace-avatar" aria-hidden="true"><img src="/static/vultron-mark.svg" width="20" height="20" alt=""></span><div>Local workspace<small id="connection-status">Connecting…</small></div><span id="connection-dot" class="status-light" data-state="unknown" aria-hidden="true"></span></div>
     </aside>
     <div class="workbench">
       <header class="masthead"><div class="breadcrumb"><h1>Vultron</h1><span class="slash">/</span><span id="breadcrumb-current">New investigation</span></div><div class="header-actions"><span class="local-label">LOCAL</span><button id="toggle-inspector" class="icon-button" type="button" aria-label="Toggle runtime and evidence" aria-expanded="true" aria-controls="context-panel" title="Runtime and evidence"><svg class="icon" aria-hidden="true"><use href="#i-panel"/></svg></button></div></header>
       <main id="task-detail" class="detail" tabindex="-1">
         <div id="detail-empty" class="detail-empty">
           <div class="welcome-content">
-            <svg class="welcome-mark" aria-hidden="true"><use href="#v-mark"/></svg>
+            <img class="welcome-mark" src="/static/vultron-mark.svg" width="56" height="56" alt="">
             <p class="eyebrow">YOUR AUTONOMOUS TESTING WORKSPACE</p>
             <h2>What are we<br>testing today<span>?</span></h2>
             <p class="welcome-description">From the first failing check to a verified release.<br>Give Vultron a repository. Follow every decision.</p>
@@ -60,7 +60,7 @@
           <section class="controls" aria-labelledby="controls-heading"><div class="controls-head"><h3 id="controls-heading">Steer the agent</h3><div class="control-buttons"><button type="button" data-action="pause">Pause</button><button type="button" data-action="resume">Resume</button><button type="button" data-action="cancel" class="danger">Cancel</button></div></div><form id="steer-form"><label class="sr-only" for="instruction">Steering instruction</label><textarea id="instruction" maxlength="4000" rows="2" placeholder="Add a constraint or redirect the next step…" required></textarea><div class="composer-footer"><span id="control-hint">Applied at the next control boundary</span><button type="submit">Send note<svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button></div></form></section>
         </div>
       </main>
-      <footer class="workspace-footer"><span><span class="footer-mark">V</span> Evidence behind every outcome</span><time id="clock">--:--:--</time></footer>
+      <footer class="workspace-footer"><span><img class="footer-mark" src="/static/vultron-mark.svg" width="16" height="16" alt=""> Evidence behind every outcome</span><time id="clock">--:--:--</time></footer>
     </div>
     <aside id="context-panel" class="context-panel" aria-label="Runtime and evidence"><div class="context-title"><h2>Workspace context</h2><span class="context-badge">LIVE</span></div><section class="runtime-panel" aria-labelledby="runtime-heading"><div class="panel-heading"><h3 id="runtime-heading">Runtime and checks</h3><span id="worker-dot" class="status-light" data-state="unknown" aria-hidden="true"></span></div><div id="runtime-info">Connecting to worker…</div></section><section id="task-context" hidden><div class="panel-heading"><h3>Investigation details</h3></div><dl id="facts" class="facts"></dl><details class="record-disclosure"><summary>Task record <span>JSON</span></summary><pre id="record" tabindex="0" aria-label="Task record JSON"></pre></details><button id="download-record" class="download-record" type="button">Download task record <span aria-hidden="true">↓</span></button></section><div class="context-footnote"><span class="eyebrow">OBSERVE. INTERVENE. VERIFY.</span><p>Checks, permissions, and delivery follow the repository’s standing configuration.</p></div></aside>
   </div>
