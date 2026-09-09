@@ -16,7 +16,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Literal, Protocol, cast
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 MAX_REQUEST_BYTES = 64 * 1024
 MAX_INSTRUCTION_CHARS = 4_000
@@ -57,11 +57,13 @@ class DashboardServer(ThreadingHTTPServer):
         repositories: tuple[str, ...],
         enqueue: Callable[[str], dict[str, Any]],
         runtime: Callable[[], dict[str, Any]] | None = None,
+        live: Callable[[dict[str, Any], list[str]], dict[str, Any]] | None = None,
     ) -> None:
         self.store = store
         self.repositories = repositories
         self.enqueue = enqueue
         self.runtime = runtime
+        self.live = live
         try:
             if ipaddress.ip_address(address[0]).version == 6:
                 self.address_family = socket.AF_INET6
@@ -289,8 +291,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         {"events": self.server.store.events(task_id)},
                     )
                     return
+                if suffix == "live":
+                    task = self.server.store.get_task(task_id)
+                    query = parse_qs(urlsplit(self.path).query, max_num_fields=8)
+                    if set(query) - {"log"}:
+                        raise ValueError("Only log selection is supported")
+                    value = (
+                        self.server.live(task, query.get("log", []))
+                        if self.server.live
+                        else {"available": False, "runs": [], "logs": {}}
+                    )
+                    self._send_json(HTTPStatus.OK, {"workflow": value})
+                    return
         except KeyError:
             self._error(HTTPStatus.NOT_FOUND, "Task not found")
+            return
+        except ValueError as exc:
+            self._error(HTTPStatus.BAD_REQUEST, str(exc))
             return
         except Exception:
             self._error(HTTPStatus.INTERNAL_SERVER_ERROR, "Task store operation failed")
@@ -366,6 +383,7 @@ def make_server(
     port: int = 8765,
     *,
     runtime: Callable[[], dict[str, Any]] | None = None,
+    live: Callable[[dict[str, Any], list[str]], dict[str, Any]] | None = None,
 ) -> ThreadingHTTPServer:
     """Create a loopback dashboard server; the caller owns serving and shutdown."""
     if not _loopback_hostname(host):
@@ -378,4 +396,4 @@ def make_server(
         or len(set(repositories)) != len(repositories)
     ):
         raise ValueError("Repositories must be a non-empty list of unique names")
-    return DashboardServer((host, port), store, tuple(repositories), enqueue, runtime)
+    return DashboardServer((host, port), store, tuple(repositories), enqueue, runtime, live)

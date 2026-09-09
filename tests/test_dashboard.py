@@ -51,7 +51,7 @@ class FakeStore:
 
 
 @contextmanager
-def running_dashboard(runtime=None):
+def running_dashboard(runtime=None, live=None):
     store = FakeStore()
 
     def enqueue(repository):
@@ -60,7 +60,7 @@ def running_dashboard(runtime=None):
         store.event_rows[task["id"]] = []
         return dict(task)
 
-    server = make_server(store, ["demo", "sample"], enqueue, port=0, runtime=runtime)
+    server = make_server(store, ["demo", "sample"], enqueue, port=0, runtime=runtime, live=live)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -112,6 +112,30 @@ def test_runtime_reports_live_callback_and_unmanaged_default():
             port, "GET", "/api/runtime", headers={"Origin": "https://external.invalid"}
         )
         assert status == 403
+
+
+def test_live_workflow_requires_existing_task_safe_origin_and_bounded_query():
+    calls = []
+
+    def live(task, logs):
+        calls.append((task["id"], logs))
+        return {"available": True, "runs": [], "logs": {}}
+
+    with running_dashboard(live=live) as (_, port):
+        assert request(port, "GET", "/api/tasks/task-1/live?log=run%2Fcheck")[0] == 200
+        assert calls == [("task-1", ["run/check"])]
+        assert request(port, "GET", "/api/tasks/missing/live")[0] == 404
+        assert request(port, "GET", "/api/tasks/task-1/live?path=secret")[0] == 400
+        assert request(port, "GET", "/api/tasks/task-1/live?" + "&".join(["log=x"] * 9))[0] == 400
+        assert (
+            request(
+                port,
+                "GET",
+                "/api/tasks/task-1/live",
+                headers={"Origin": "https://external.invalid"},
+            )[0]
+            == 403
+        )
 
 
 def test_dashboard_assets_are_local_and_hardened():

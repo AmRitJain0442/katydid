@@ -17,6 +17,7 @@ from katydid.ai import codex_command
 from katydid.controller import Controller
 from katydid.dashboard import make_server
 from katydid.fleet import load_fleet
+from katydid.live import workflow_snapshot
 
 
 def add_commands(subparsers: Any) -> None:
@@ -287,6 +288,7 @@ def handle(args: argparse.Namespace) -> int:
             args.host,
             args.port,
             runtime=runtime_status,
+            live=lambda task, logs: workflow_snapshot(controller.directory, task, logs),
         )
         server.timeout = 0.25
         thread = threading.Thread(target=work, daemon=True, name="katydid-worker")

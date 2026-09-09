@@ -303,9 +303,40 @@ def run_plan(
         marker: Path,
         environment_directory: Path | None,
     ) -> CheckResult:
-        if docker_session is not None:
-            return docker_session.execute(check, folder, interrupted, marker, environment_directory)
-        return _execute(check, plan, folder, run_id, interrupted, marker, environment_directory)
+        progress = {
+            "schema_version": 1,
+            "id": check.id,
+            "started_at": datetime.now(UTC).isoformat(),
+            "status": "running",
+        }
+
+        def write_progress(value: dict[str, Any]) -> None:
+            try:
+                _write_json(folder / "progress.json", value)
+            except OSError:
+                # Observability must never prevent mandatory cleanup from executing.
+                # The authoritative run/environment checkpoints still govern the gate.
+                pass
+
+        write_progress(progress)
+        try:
+            if docker_session is not None:
+                result = docker_session.execute(
+                    check, folder, interrupted, marker, environment_directory
+                )
+            else:
+                result = _execute(
+                    check, plan, folder, run_id, interrupted, marker, environment_directory
+                )
+        except BaseException:
+            write_progress(
+                {**progress, "status": "error", "finished_at": datetime.now(UTC).isoformat()}
+            )
+            raise
+        write_progress(
+            {**progress, **asdict(result), "finished_at": datetime.now(UTC).isoformat()},
+        )
+        return result
 
     if plan.environment is not None:
         environment_directory = directory / "environment" / "data"
