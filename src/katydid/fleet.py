@@ -167,6 +167,7 @@ class RepositoryConfig(BaseModel):
     release: ReleaseConfig | None = None
     isolation_policy: IsolationPolicy | None = None
     events: GitHubEvents | None = None
+    github_comments: bool = False
 
     @field_validator("profile")
     @classmethod
@@ -273,6 +274,8 @@ def load_fleet(path: Path) -> tuple[FleetConfig, str]:
                 raise ValueError("Only local Git paths and HTTPS GitHub repositories are supported")
             else:
                 location = str((path.parent / location).resolve())
+            if repository.github_comments and not location.startswith("https://github.com/"):
+                raise ValueError("GitHub comments require a registered HTTPS GitHub source")
             source_key = location.casefold().removesuffix(".git")
             if source_key in source_keys:
                 raise ValueError("A Git source can only be registered once; combine its checks")

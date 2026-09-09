@@ -438,6 +438,8 @@ class Controller:
                         body,
                     )
                     evidence["pull_request"] = pr
+                    # Publish the verified association before waiting for CI or merging.
+                    state("publishing", pull_request=pr, candidate_sha=sha)
                     if repo.delivery.auto_merge:
                         evidence["github_checks"] = wait_pull_request(
                             github,

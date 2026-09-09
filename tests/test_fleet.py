@@ -50,6 +50,8 @@ def test_fleet_resolves_paths_and_digests(tmp_path):
         lambda d: d["repositories"][0].update(editable_paths=["unlisted.py"]),
         lambda d: d["repositories"][0].update(required_checks={}),
         lambda d: d["repositories"][0].update(source="ssh://somewhere/repo"),
+        lambda d: d["repositories"][0].update(github_comments=True),
+        lambda d: d["repositories"][0].update(github_comments="true"),
         lambda d: d["repositories"][0].update(delivery={"mode": "github"}),
         lambda d: d["repositories"][0].update(delivery={"auto_merge": True}),
         lambda d: d["repositories"].append(dict(d["repositories"][0])),
@@ -60,6 +62,16 @@ def test_fleet_rejects_ambiguous_or_unsafe_policy(tmp_path, mutation):
     mutation(value)
     with pytest.raises(ProfileError):
         load(tmp_path, value)
+
+
+def test_github_comments_require_explicit_registered_repository_opt_in(tmp_path):
+    value = data()
+    value["repositories"][0]["source"] = "https://github.com/owner/repository.git"
+    config, _ = load(tmp_path, value)
+    assert config.repository("demo").github_comments is False
+    value["repositories"][0]["github_comments"] = True
+    config, _ = load(tmp_path, value)
+    assert config.repository("demo").github_comments is True
 
 
 def test_central_checks_cannot_be_weakened(tmp_path):
