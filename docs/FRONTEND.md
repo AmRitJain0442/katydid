@@ -19,6 +19,11 @@ palette. It does not depend on or run the DeepSeek harness.
 4. Open **Checks** to compare baseline, repair/release verification, deployment,
    health, and rollback evidence when present. Failed baseline checks remain failed
    even if later verification passes. Expand a check for its report and log tails.
+   Open **Live workflow** to watch individual tools during execution. The phase
+   diagram shows stages reached and the current agent phase. Tool rows show pending,
+   running, passed, failed, or interrupted status, with elapsed time. Expand a row
+   for stdout and stderr; **Follow active tool** opens the next running tool. Output
+   follows new text until you scroll back. Up to eight tool outputs can remain open.
 5. Use **Pause**, **Resume**, **Cancel**, or a steering note on an active task.
    Completed tasks remain read-only. A rejected steering note stays in the composer.
 6. Open the right inspector for the live provider, required checks, watch/schedule,
@@ -48,3 +53,31 @@ python scripts/dev.py cli run tests/browser/quality.yaml
 The existing CI runs this profile on Windows and Linux. API boundary tests remain
 in `tests/test_dashboard.py`. The redesign requires no worker restart because the
 dashboard reads its static files on each request.
+
+## Live workflow transport
+
+The runner writes an atomic `progress.json` beside each check's logs, including
+environment prepare/readiness/cleanup commands and release hooks. Start/finish
+timestamps describe real execution; pending checks are read from the run plan.
+The ordinary run checkpoint and gate remain authoritative. Failure to write the
+optional progress file cannot prevent mandatory cleanup from executing.
+
+`GET /api/tasks/{id}/live` lists runs in the task's current execution epoch.
+Repeated `log` query parameters select keys returned by that endpoint. Reads never
+use arbitrary client-supplied paths or task-result directory strings. Links,
+junctions/reparse points, hard-linked files, other epochs, and path escapes are
+excluded. Reads are bounded to sixteen recent runs, eight selected outputs, and
+the latest 16 KiB per stream; truncation is visible. All data uses the dashboard's
+existing loopback/same-origin boundary.
+
+The active Live workflow tab polls every two seconds and suspends polling in a
+hidden browser tab. Closed outputs are not transferred. Completed tasks retain
+their evidence, while unfinished steps on terminal tasks are shown as interrupted
+or not run. Output depends on when each tool flushes its streams. This includes
+Playwright's console/reporter output; browser video is not streamed.
+
+An existing service must be restarted once to load the live endpoint and runner
+instrumentation. Older completed runs still expose their stored results/logs,
+but have no new per-tool start/finish timestamps. The real browser acceptance test
+asserts that subprocess output is visible while its task is still testing, then
+observes the same row becoming passed without losing its expanded output.
