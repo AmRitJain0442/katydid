@@ -76,6 +76,22 @@ their evidence, while unfinished steps on terminal tasks are shown as interrupte
 or not run. Output depends on when each tool flushes its streams. This includes
 Playwright's console/reporter output; browser video is not streamed.
 
+Each row names the executing tool separately from the check: for example
+**Playwright** / Browser tests or **pytest** / API tests. Direct CLI invocations and
+built-in security adapters are recognized automatically. Existing Orders records
+also recognize their shipped wrappers. For custom wrappers, declare a display
+name on the check (or environment/release hook):
+
+```yaml
+- id: browser
+  kind: test
+  tool: Playwright
+  argv: ["node", "scripts/run-browser.mjs", "{report}"]
+```
+
+The name is descriptive metadata and does not change execution or gate behavior.
+Unrecognized wrappers show their interpreter or executable until a tool is declared.
+
 An existing service must be restarted once to load the live endpoint and runner
 instrumentation. Older completed runs still expose their stored results/logs,
 but have no new per-tool start/finish timestamps. The real browser acceptance test

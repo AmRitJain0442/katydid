@@ -109,6 +109,14 @@ class Check(BaseModel):
     timeout_seconds: int = Field(default=300, ge=1, le=3600)
     stages: list[Stage] = Field(default_factory=default_stages, min_length=1)
     required: bool = True
+    tool: str | None = Field(default=None, min_length=1, max_length=80)
+
+    @field_validator("tool")
+    @classmethod
+    def valid_tool(cls, value: str | None) -> str | None:
+        if value is not None and (value != value.strip() or any(ord(char) < 32 for char in value)):
+            raise ValueError("Tool name must be printable without surrounding whitespace")
+        return value
 
     @field_validator("argv")
     @classmethod
@@ -206,6 +214,7 @@ class PlannedCheck:
     working_directory: str
     timeout_seconds: int
     required: bool
+    tool: str | None = None
 
 
 @dataclass(frozen=True)
@@ -309,6 +318,7 @@ def make_plan(path: Path, stage: Stage, root: Path | None = None) -> Plan:
             str(working_directory),
             check.timeout_seconds,
             check.required,
+            check.tool,
         )
 
     for check in profile.checks:

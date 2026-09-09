@@ -380,7 +380,7 @@ function renderWorkflow(workflow) {
   const terminal = terminalStates.has(workflow.state || selectedTask?.state);
   $("#live-sync").textContent = terminal ? "RECORDED" : "LIVE";
   $("#live-sync").dataset.state = running.length ? "running" : "unknown";
-  $("#live-status").textContent = !workflow.available ? "Live execution evidence is unavailable on this host." : running.length ? `${running.length} tool running · ${toolLabel(running[0].name)}` : terminal ? "Recorded execution · no tools running" : `Worker: ${humanize(selectedTask?.state)} · waiting for the next tool`;
+  $("#live-status").textContent = !workflow.available ? "Live execution evidence is unavailable on this host." : running.length ? `Executing ${running[0].tool || toolLabel(running[0].name)} · ${toolLabel(running[0].name)}` : terminal ? "Recorded execution · no tools running" : `Worker: ${humanize(selectedTask?.state)} · waiting for the next tool`;
   if (workflow.truncated) $("#live-status").textContent += " · showing recent runs";
   const structure = JSON.stringify([selectedId, runs.map(run => [run.id, run.steps.map(step => step.key)])]);
   if (structure !== workflowStructure) {
@@ -402,8 +402,8 @@ function renderWorkflow(workflow) {
         liveSteps.set(step.key, row);
         const summary = container(row, "summary");
         const label = container(summary, "span", "live-step-label");
-        appendText(label, "strong", toolLabel(step.name));
-        appendText(label, "small", `${step.phase} / ${step.name}`);
+        appendText(label, "strong", step.tool || toolLabel(step.name));
+        appendText(label, "small", `${toolLabel(step.name)} · ${step.phase} / ${step.name}`);
         appendText(summary, "span", "—", "live-duration");
         stateLabel(summary, step.status);
         const output = container(row, "div", "tool-output");
@@ -432,6 +432,7 @@ function renderWorkflow(workflow) {
   for (const step of allSteps) {
     const row = liveSteps.get(step.key);
     if (!row) continue;
+    row.querySelector(".live-step-label strong").textContent = step.tool || toolLabel(step.name);
     row.dataset.state = knownState(step.status);
     const state = row.querySelector(".state-dot");
     state.textContent = step.status.replaceAll("_", " ");

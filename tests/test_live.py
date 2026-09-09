@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from katydid.live import MAX_LOG_BYTES, workflow_snapshot
+from katydid.live import MAX_LOG_BYTES, tool_name, workflow_snapshot
 from katydid.profile import make_plan
 from katydid.runner import run_plan
 
@@ -179,3 +179,50 @@ def test_progress_storage_failure_does_not_prevent_environment_cleanup(tmp_path,
     result = run_plan(make_plan(profile, "pull-request"))
     assert result.gate.passed
     assert marker.exists()
+
+
+@pytest.mark.parametrize(
+    ("argv", "repository", "expected"),
+    [
+        (["{python}", "-m", "pytest"], "custom", "pytest"),
+        (["uv", "run", "ruff", "check", "."], "custom", "Ruff"),
+        (["{python}", "-m", "katydid.security", "static"], "custom", "Semgrep"),
+        (["{python}", "-m", "katydid.security", "dependencies"], "custom", "Trivy"),
+        (["{python}", "-m", "katydid.security", "secrets"], "custom", "Gitleaks"),
+        (["{python}", "scripts/quality.py", "browser"], "katydid-orders-lab", "Playwright"),
+        (["{python}", "scripts/quality.py", "browser"], "unrelated-repo", "Python"),
+        (["{python}", "scripts/run_isolated.py"], "katydid-orders-lab", "Docker"),
+    ],
+)
+def test_tool_names_identify_commands_without_guessing_from_check_id(argv, repository, expected):
+    assert tool_name({"id": "browser", "argv": argv}, repository) == expected
+    assert tool_name({"argv": argv, "tool": "Custom harness"}, repository) == "Custom harness"
+
+
+def test_configured_tool_name_survives_planning_and_live_evidence(tmp_path):
+    profile = tmp_path / "quality.yaml"
+    profile.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "repository": "custom",
+                "owner": "team",
+                "checks": [
+                    {
+                        "id": "custom",
+                        "kind": "command",
+                        "tool": "Custom harness",
+                        "argv": ["{python}", "-c", "pass"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan = make_plan(profile, "pull-request")
+    assert plan.checks[0].tool == "Custom harness"
+    run_plan(plan, tmp_path / "state/tasks/task-1/1/runs")
+    snapshot = workflow_snapshot(
+        tmp_path / "state", {"id": "task-1", "epoch": 1, "state": "completed"}, []
+    )
+    assert snapshot["runs"][0]["steps"][0]["tool"] == "Custom harness"

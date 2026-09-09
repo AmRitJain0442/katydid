@@ -610,7 +610,13 @@ class Controller:
                 self.digest,
                 (
                     PlannedCheck(
-                        check.id, check.kind, tuple(argv), str(cwd), check.timeout_seconds, True
+                        check.id,
+                        check.kind,
+                        tuple(argv),
+                        str(cwd),
+                        check.timeout_seconds,
+                        True,
+                        tool=check.tool,
                     ),
                 ),
                 (),

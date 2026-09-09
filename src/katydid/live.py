@@ -19,6 +19,74 @@ RUN_ID = re.compile(r"^[a-f0-9]{32}$")
 TASK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
+def tool_name(check: dict[str, Any], repository: str = "") -> str:
+    """Prefer explicit metadata; recognize direct CLIs and shipped legacy adapters."""
+    explicit = check.get("tool")
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit[:80]
+    argv = check.get("argv")
+    if not isinstance(argv, (list, tuple)) or not argv:
+        return "Tool not specified"
+    args = [str(arg).replace("\\", "/") for arg in argv]
+    if "katydid.security" in args:
+        index = args.index("katydid.security")
+        if len(args) > index + 1:
+            return {"static": "Semgrep", "dependencies": "Trivy", "secrets": "Gitleaks"}.get(
+                args[index + 1], "Vultron security adapter"
+            )
+    if "katydid.deployment" in args:
+        return "Vultron deployer"
+    # Old Orders evidence predates tool metadata. Only recognize the exact shipped
+    # profile and wrappers, rather than assuming every check named browser uses Playwright.
+    if repository == "katydid-orders-lab":
+        if len(args) > 2 and args[1] == "scripts/quality.py":
+            return {
+                "prepare": "uv + npm + Playwright",
+                "cleanup": "Python",
+                "unit": "pytest",
+                "api": "pytest",
+                "lint": "Ruff",
+                "browser": "Playwright",
+            }.get(args[2], "Python")
+        if len(args) > 1 and args[1] == "scripts/run_isolated.py":
+            return "Docker"
+    commands = {
+        "pytest": "pytest",
+        "ruff": "Ruff",
+        "playwright": "Playwright",
+        "semgrep": "Semgrep",
+        "trivy": "Trivy",
+        "gitleaks": "Gitleaks",
+        "docker": "Docker",
+        "vitest": "Vitest",
+        "jest": "Jest",
+        "mypy": "mypy",
+        "uv": "uv",
+        "npm": "npm",
+    }
+    executable = args[0].rsplit("/", 1)[-1].removesuffix(".exe")
+    candidate = executable
+    if "-m" in args[:3]:
+        index = args.index("-m")
+        if len(args) > index + 1:
+            candidate = args[index + 1]
+    elif executable in {"npx", "npm", "uv", "uvx"}:
+        candidate = next((arg for arg in args[1:4] if arg in commands), executable)
+    if candidate in commands:
+        return commands[candidate]
+    if any("/node_modules/@playwright/test/cli." in arg for arg in args[:3]):
+        return "Playwright"
+    return {
+        "{python}": "Python",
+        "python": "Python",
+        "python3": "Python",
+        "node": "Node.js",
+        "bash": "Bash",
+        "pwsh": "PowerShell",
+        "powershell": "PowerShell",
+    }.get(executable, executable[:80])
+
+
 def _safe_path(root: Path, path: Path) -> bool:
     """Do not follow links, Windows junctions/reparse points, or escape the state root."""
     try:
@@ -112,6 +180,7 @@ def _steps(root: Path, run: Path, snapshot: dict[str, Any], terminal: bool) -> l
                 {
                     "key": f"{run.parent.name}/{run.name}/{relative}",
                     "name": name,
+                    "tool": tool_name(check, str(plan.get("repository", ""))),
                     "kind": check.get("kind", "command"),
                     "phase": phase,
                     "status": status,
@@ -154,6 +223,7 @@ def _steps(root: Path, run: Path, snapshot: dict[str, Any], terminal: bool) -> l
                                 f"environment/readiness-{index:03d}-{name}"
                             ),
                             "name": name,
+                            "tool": tool_name(check, str(plan.get("repository", ""))),
                             "kind": check.get("kind", "command"),
                             "phase": "readiness",
                             "status": status,
