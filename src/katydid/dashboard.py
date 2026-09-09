@@ -27,6 +27,7 @@ STATIC_FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/static/app.css": ("app.css", "text/css; charset=utf-8"),
     "/static/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/static/vultron-mark.svg": ("vultron-mark.svg", "image/svg+xml"),
 }
 
 
