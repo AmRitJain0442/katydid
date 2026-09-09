@@ -113,3 +113,11 @@ Fleet/API tests validate opt-in and origin boundaries. Playwright checks retry
 visibility, safe links, and transition to posted/no-association states. These use
 controlled API responses; a real GitHub publication remains a separate live
 acceptance check requiring connectivity and an associated PR.
+
+Live transport acceptance passed on 2026-09-09 against a dedicated draft PR in
+the private Orders repository: the real API confirmed one comment, updated from
+queued to cancelled with the same ID. The PR was closed without merging.
+See [recorded evidence](evidence/github-comments-live-acceptance.json) and the
+[comment](https://github.com/AmRitJain0442/katydid-orders-lab/pull/2#issuecomment-5602630866)
+(repository access required). This validates posting and updating through the
+production reporter against GitHub, not an application test or AI invocation.

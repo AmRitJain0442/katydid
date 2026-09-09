@@ -1,0 +1,13 @@
+{
+  "scope": "Live GitHub comment transport; no application tests or AI calls",
+  "pull_request": "https://github.com/AmRitJain0442/katydid-orders-lab/pull/2",
+  "source_sha": "69daed1e3d343227d440d19d9f1692820b5d5958",
+  "task_id": "b0e7df46e0894f499d406b3a99754a81",
+  "comment_url": "https://github.com/AmRitJain0442/katydid-orders-lab/pull/2#issuecomment-5602630866",
+  "comment_id": 5602630866,
+  "owned_comment_count": 1,
+  "initial_task_state": "queued",
+  "final_task_state": "cancelled",
+  "updated_in_place": true,
+  "passed": true
+}
