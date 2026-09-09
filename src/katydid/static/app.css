@@ -225,6 +225,10 @@ textarea { width:100%; resize:vertical; min-height:52px; max-height:180px; borde
 .record-disclosure>summary span { float:right; color:var(--subtle); font:9px/1.8 var(--mono); }
 .record-disclosure pre { margin-bottom:12px; }
 .download-record { display:flex; justify-content:space-between; width:100%; margin-top:12px; font-size:10px; background:transparent; }
+.github-report { margin-top:20px; padding-top:16px; border-top:1px solid var(--line); }
+.github-report h4 { margin:0 0 10px; font-size:11px; font-weight:500; }
+.github-report p { color:var(--subtle); font-size:10px; line-height:1.7; }
+.github-report a { color:var(--accent-ink); font-size:10px; text-underline-offset:3px; }
 .context-footnote { padding-top:28px; color:var(--subtle); }
 .context-footnote .eyebrow { font-size:8px; letter-spacing:1px; }
 .context-footnote p { font-size:10px; line-height:1.8; }

@@ -153,6 +153,7 @@ async function loadRuntime() {
       runtimeLine(section, "Auto deploy", repository.auto_deploy ? "Enabled" : "Disabled");
       runtimeLine(section, "Release hooks", repository.release_configured ? "Configured" : "Not configured");
       runtimeLine(section, "Required isolation", repository.isolation_required ? "Container" : "Not required");
+      runtimeLine(section, "PR comments", repository.github_comments ? "Enabled" : "Disabled");
     }
   } catch {
     renderedRuntime = "";
@@ -511,6 +512,38 @@ function renderDetail(task, events) {
   renderWorkflowPhases();
   const record = JSON.stringify(task, null, 2);
   if (ui.record.textContent !== record) ui.record.textContent = record;
+  loadReport(task.id);
+}
+
+async function loadReport(id) {
+  let panel = $("#github-report");
+  if (!panel) {
+    panel = container($("#task-context"), "section", "github-report");
+    panel.id = "github-report";
+  }
+  try {
+    const payload = await api(`/api/tasks/${encodeURIComponent(id)}/report`);
+    if (selectedId !== id) return;
+    const report = payload.report || { enabled: false };
+    const signature = JSON.stringify([id, report]);
+    if (panel.dataset.signature === signature) return;
+    panel.dataset.signature = signature;
+    panel.replaceChildren();
+    appendText(panel, "h4", "GitHub report");
+    const messages = { unassociated: "No PR associated with this investigation.", pending: "Comment update queued.", posted: "Comment is up to date.", retrying: "Comment update will be retried.", superseded: "The PR head changed; this report is superseded.", disabled: "Reporting stopped after a policy or target change." };
+    appendText(panel, "p", report.enabled ? messages[report.state] || "Waiting for reporting status…" : "PR comments are disabled for this repository.");
+    if (report.enabled && report.error) appendText(panel, "p", report.error);
+    if (typeof report.url === "string" && /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*#issuecomment-[1-9][0-9]*$/.test(report.url)) {
+      const link = appendText(panel, "a", "View GitHub comment ↗");
+      link.href = report.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+    }
+  } catch {
+    if (selectedId !== id) return;
+    delete panel.dataset.signature;
+    panel.textContent = "GitHub reporting status unavailable.";
+  }
 }
 function newInvestigation(focus = true) {
   selectionVersion++;

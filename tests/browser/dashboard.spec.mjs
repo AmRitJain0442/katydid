@@ -159,6 +159,29 @@ test("investigation navigation keeps evidence truthful and supports keyboard and
   await expect(page.locator("#context-panel")).toBeVisible();
 });
 
+test("GitHub reporting shows retries and only links to confirmed GitHub comment URLs", async ({ page }) => {
+  const task = { id: "report-task", repository: "catalog", state: "completed", created_at: 200 };
+  let report = { enabled: true, state: "retrying", error: "GitHub unavailable <script>bad()</script>", url: "javascript:alert(1)" };
+  await page.route("**/api/tasks**", async route => {
+    const path = new URL(route.request().url()).pathname;
+    await route.fulfill({ json: path.endsWith("/report") ? { report } : path.endsWith("/events") ? { events: [] } : path.endsWith(task.id) ? { task } : { tasks: [task] } });
+  });
+  await page.goto("/");
+  await page.locator(".task-card").click();
+  await expect(page.locator("#github-report")).toContainText("Comment update will be retried.");
+  await expect(page.locator("#github-report")).toContainText(report.error);
+  await expect(page.locator("#github-report script, #github-report a")).toHaveCount(0);
+  report = { enabled: true, state: "posted", url: "https://github.com/owner/orders/pull/3#issuecomment-100" };
+  await page.locator("#refresh").click();
+  await expect(page.locator("#github-report")).toContainText("Comment is up to date.");
+  await expect(page.locator("#github-report a")).toHaveAttribute("href", report.url);
+  await expect(page.locator("#github-report a")).toHaveAttribute("rel", "noopener noreferrer");
+  report = { enabled: true, state: "unassociated" };
+  await page.locator("#refresh").click();
+  await expect(page.locator("#github-report")).toContainText("No PR associated");
+  await expect(page.locator("#github-report a")).toHaveCount(0);
+});
+
 test("failed steering preserves the operator note and runtime failure is visible", async ({ page }) => {
   const task = { id: "paused-task", repository: "catalog", state: "paused", created_at: 200 };
   await page.route("**/api/tasks**", async route => {

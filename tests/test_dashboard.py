@@ -51,7 +51,7 @@ class FakeStore:
 
 
 @contextmanager
-def running_dashboard(runtime=None, live=None):
+def running_dashboard(runtime=None, live=None, reporting=None):
     store = FakeStore()
 
     def enqueue(repository):
@@ -60,7 +60,15 @@ def running_dashboard(runtime=None, live=None):
         store.event_rows[task["id"]] = []
         return dict(task)
 
-    server = make_server(store, ["demo", "sample"], enqueue, port=0, runtime=runtime, live=live)
+    server = make_server(
+        store,
+        ["demo", "sample"],
+        enqueue,
+        port=0,
+        runtime=runtime,
+        live=live,
+        reporting=reporting,
+    )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -299,6 +307,33 @@ def test_body_limit_and_path_traversal_are_rejected():
         for path in ("/static/../dashboard.py", "/static/%2e%2e/dashboard.py", "/api/tasks/a%2Fb"):
             status, _, _ = request(port, "GET", path)
             assert status == 404
+
+
+def test_comment_status_requires_known_task_and_same_origin():
+    seen = []
+
+    def reporting(task):
+        seen.append(task["id"])
+        return {"enabled": True, "state": "retrying", "error": "GitHub unavailable"}
+
+    with running_dashboard(reporting=reporting) as (_, port):
+        status, _, data = request(port, "GET", "/api/tasks/task-1/report")
+        assert status == 200
+        assert data["report"]["state"] == "retrying"
+        assert seen == ["task-1"]
+        assert request(port, "GET", "/api/tasks/missing/report")[0] == 404
+        assert (
+            request(
+                port,
+                "GET",
+                "/api/tasks/task-1/report",
+                headers={"Origin": "https://evil.example"},
+            )[0]
+            == 403
+        )
+        assert seen == ["task-1"]
+    with running_dashboard() as (_, port):
+        assert request(port, "GET", "/api/tasks/task-1/report")[2]["report"]["enabled"] is False
 
 
 def test_make_server_rejects_external_bindings_and_bad_registry():

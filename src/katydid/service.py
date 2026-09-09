@@ -18,6 +18,7 @@ from katydid.controller import Controller
 from katydid.dashboard import make_server
 from katydid.fleet import load_fleet
 from katydid.live import workflow_snapshot
+from katydid.reporting import CommentReporter
 
 
 def add_commands(subparsers: Any) -> None:
@@ -213,6 +214,12 @@ def handle(args: argparse.Namespace) -> int:
     if args.schedule_seconds and not args.watch:
         raise ValueError("Scheduled discovery requires --watch")
     stop = threading.Event()
+    reporter = CommentReporter(controller, stop)
+    report_thread = threading.Thread(
+        target=reporter.run, daemon=True, name="vultron-github-reporter"
+    )
+    if not (args.command == "worker" and args.once):
+        report_thread.start()
     previous = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
     for sig in previous:
         signal.signal(sig, lambda _sig, _frame: stop.set())
@@ -223,6 +230,10 @@ def handle(args: argparse.Namespace) -> int:
                 if args.schedule_seconds:
                     controller.discover(period=int(time.time() // args.schedule_seconds))
             result = controller.work_once(stop)
+            try:
+                reporter.tick()
+            except Exception:
+                pass  # The execution result remains authoritative when reporting is unavailable.
             _print(result)
             return 0 if result is None or result["state"] == "completed" else 1
 
@@ -276,6 +287,7 @@ def handle(args: argparse.Namespace) -> int:
                         "auto_deploy": bool(repo.release and repo.release.auto_deploy),
                         "isolation_required": repo.isolation_policy is not None
                         and repo.isolation_policy.required,
+                        "github_comments": repo.github_comments,
                     }
                     for repo in controller.config.repositories
                 ],
@@ -289,6 +301,7 @@ def handle(args: argparse.Namespace) -> int:
             args.port,
             runtime=runtime_status,
             live=lambda task, logs: workflow_snapshot(controller.directory, task, logs),
+            reporting=reporter.status,
         )
         server.timeout = 0.25
         thread = threading.Thread(target=work, daemon=True, name="katydid-worker")
@@ -304,5 +317,8 @@ def handle(args: argparse.Namespace) -> int:
             thread.join()
         return 0
     finally:
+        stop.set()
+        if report_thread.is_alive():
+            report_thread.join(timeout=25)
         for sig, handler in previous.items():
             signal.signal(sig, handler)

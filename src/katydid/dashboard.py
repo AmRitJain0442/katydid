@@ -58,12 +58,14 @@ class DashboardServer(ThreadingHTTPServer):
         enqueue: Callable[[str], dict[str, Any]],
         runtime: Callable[[], dict[str, Any]] | None = None,
         live: Callable[[dict[str, Any], list[str]], dict[str, Any]] | None = None,
+        reporting: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
         self.store = store
         self.repositories = repositories
         self.enqueue = enqueue
         self.runtime = runtime
         self.live = live
+        self.reporting = reporting
         try:
             if ipaddress.ip_address(address[0]).version == 6:
                 self.address_family = socket.AF_INET6
@@ -303,6 +305,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     )
                     self._send_json(HTTPStatus.OK, {"workflow": value})
                     return
+                if suffix == "report":
+                    task = self.server.store.get_task(task_id)
+                    report = (
+                        self.server.reporting(task) if self.server.reporting else {"enabled": False}
+                    )
+                    self._send_json(HTTPStatus.OK, {"report": report})
+                    return
         except KeyError:
             self._error(HTTPStatus.NOT_FOUND, "Task not found")
             return
@@ -384,6 +393,7 @@ def make_server(
     *,
     runtime: Callable[[], dict[str, Any]] | None = None,
     live: Callable[[dict[str, Any], list[str]], dict[str, Any]] | None = None,
+    reporting: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> ThreadingHTTPServer:
     """Create a loopback dashboard server; the caller owns serving and shutdown."""
     if not _loopback_hostname(host):
@@ -396,4 +406,6 @@ def make_server(
         or len(set(repositories)) != len(repositories)
     ):
         raise ValueError("Repositories must be a non-empty list of unique names")
-    return DashboardServer((host, port), store, tuple(repositories), enqueue, runtime, live)
+    return DashboardServer(
+        (host, port), store, tuple(repositories), enqueue, runtime, live, reporting
+    )
