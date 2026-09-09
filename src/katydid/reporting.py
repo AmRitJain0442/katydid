@@ -6,7 +6,6 @@ import json
 import re
 import sqlite3
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -195,7 +194,7 @@ class GitHubComments:
                     errors="replace",
                     timeout=20,
                     shell=False,
-                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
             except (OSError, subprocess.SubprocessError) as exc:
                 raise ReportingError("GitHub connection unavailable or timed out") from exc
