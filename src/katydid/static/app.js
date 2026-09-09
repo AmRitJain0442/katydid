@@ -343,6 +343,7 @@ function resetWorkflow() {
   liveSteps.clear();
   $("#live-runs").replaceChildren();
   $("#workflow-phases").replaceChildren();
+  delete $("#workflow-phases").dataset.signature;
   $("#live-status").textContent = "Connecting to execution evidence…";
 }
 function renderWorkflowPhases() {
@@ -376,7 +377,7 @@ function renderWorkflow(workflow) {
   const runs = Array.isArray(workflow.runs) ? workflow.runs : [];
   const allSteps = runs.flatMap(run => run.steps || []);
   const running = allSteps.filter(step => step.status === "running");
-  const terminal = terminalStates.has(selectedTask?.state);
+  const terminal = terminalStates.has(workflow.state || selectedTask?.state);
   $("#live-sync").textContent = terminal ? "RECORDED" : "LIVE";
   $("#live-sync").dataset.state = running.length ? "running" : "unknown";
   $("#live-status").textContent = !workflow.available ? "Live execution evidence is unavailable on this host." : running.length ? `${running.length} tool running · ${toolLabel(running[0].name)}` : terminal ? "Recorded execution · no tools running" : `Worker: ${humanize(selectedTask?.state)} · waiting for the next tool`;
