@@ -97,3 +97,7 @@ instrumentation. Older completed runs still expose their stored results/logs,
 but have no new per-tool start/finish timestamps. The real browser acceptance test
 asserts that subprocess output is visible while its task is still testing, then
 observes the same row becoming passed without losing its expanded output.
+
+The task inspector also shows [GitHub reporting](GITHUB_COMMENTS.md) status and
+links to the investigation's published comment. Queued and retrying updates remain
+visible independently of test results; tasks without a PR show no association.

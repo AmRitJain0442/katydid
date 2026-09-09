@@ -108,6 +108,7 @@ the controller applies allowed edits and executes checks. See [Codex](AI.md) and
 | `required_checks` | Required nonempty map from check ID to `test` or `command`. Every named check must exist in each executed stage with the same kind and `required: true`. |
 | `required_checks_by_stage` | Optional stage-to-check map adding mandatory checks; cannot change a common required check's kind. |
 | `events` | Optional registered GitHub identity and PR/push/release event switches; see [Orchestration](ORCHESTRATION.md). |
+| `github_comments` | Default `false`. Maintain a progress comment on associated PRs; requires an HTTPS GitHub source. See [GitHub comments](GITHUB_COMMENTS.md). |
 | `repair_attempts` | `2`; integer from 1 through 5. Each attempt includes a proposal and actual verification; successful evidence then receives an independent model review. |
 | `delivery` | Strict delivery policy described below. |
 | `release` | Optional deploy, health, and rollback commands plus the `auto_deploy` discovery opt-in. It is valid only when delivery has `auto_merge: true`. |
